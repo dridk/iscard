@@ -6,9 +6,7 @@
 Welcome to iscard's documentation!
 ==================================
 
-Contents:
-
-This is a test
+Iscard is a tool to help detection of Copy Number Varition
 
 .. toctree::
    :maxdepth: 2
