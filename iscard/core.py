@@ -1,14 +1,14 @@
 import numpy as np 
 import pandas as pd 
-import pysam
-from pybedtools import BedTool 
 import pysamstats
+import pysam
 from sklearn.preprocessing import MinMaxScaler, StandardScaler,MaxAbsScaler
 import matplotlib.pyplot as plt
 
 import os 
 import re 
 from tqdm import tqdm
+import pprint 
 
 def read_bed(filename:str) -> pd.DataFrame:
     """return a dataFrame from bed bedfile 
@@ -124,7 +124,7 @@ def create_model(bamlist: list, bedfile:str, output:str, window = 1, agg="mean")
     """ create hdf5 model """ 
 
     #write bam list 
-    pd.Series(bamlist).to_hdf(output, key="bamlist")
+    pd.Series([os.path.abspath(i) for i in bamlist]).to_hdf(output, key="bamlist")
 
     # write metadata
     pd.Series({"window": window, "agg":agg, "region":os.path.abspath(bedfile)}).to_hdf(output, key="metadata")
@@ -268,7 +268,47 @@ def plot_sample(testfile: str, name:str, coordinate:str, output:str):
 
 
 
+def print_model_info(model_file:str):
+
+    pp = pprint.PrettyPrinter(indent=4)
+
+    bamlist = list(pd.read_hdf(model_file, key="bamlist"))
+
+    model = pd.read_hdf(model_file,key="model")
+
+    print("Regions scanned:\n")
+    print("{} position(s)".format(model.shape[0]))
+
+    print("\n")
+
+    print("{} Bam(s) used for the model: \n".format(len(bamlist)))
+    print("\n".join(list(pd.read_hdf(model_file, key="bamlist"))))
+       
+    print("\n")
+
+    print("Model arguments: \n")
+    for key, value in dict(pd.read_hdf(model_file, key="metadata")).items():
+        print("{:<10}{:<10}".format(key+":",str(value)))
 
 
 
+    # # write metadata
+    # pd.Series({"window": window, "agg":agg, "region":os.path.abspath(bedfile)}).to_hdf(output, key="metadata")
 
+    # print("compute model")
+    # # compute and write raw dataframe 
+    # raw = get_coverages_from_bed(bamlist,bedfile, window = 1, agg = agg )
+    # raw.to_hdf(output, "raw")
+
+    # # Scale 
+    # scale_raw = scale_dataframe(raw)
+    # model = pd.DataFrame(
+    # {
+    #     "mean":scale_raw.mean(axis=1),
+    #     "median":scale_raw.median(axis=1),
+    #     "std": scale_raw.std(axis=1),
+    #     "min": scale_raw.min(axis=1),
+    #     "max": scale_raw.max(axis=1),
+    # })
+
+    # model.to_hdf(output,key="model")
