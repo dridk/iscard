@@ -6,9 +6,16 @@
 Welcome to iscard's documentation!
 ==================================
 
-Iscard is a tool to help detection of Copy Number Varition
+Iscard is a tool to help detection of Copy Number Varition. 
 
-.. toctree::
+
+It works by ... 
+
+getting-started-with-iscard
+installation
+
+
+. toctree::
    :maxdepth: 2
 
 
