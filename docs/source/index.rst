@@ -11,12 +11,14 @@ Iscard is a tool to help detection of Copy Number Varition.
 
 It works by ... 
 
-getting-started-with-iscard
-installation
-
-
-. toctree::
+.. toctree::
    :maxdepth: 2
+
+   quickstart
+   installation
+   ...
+
+
 
 
 

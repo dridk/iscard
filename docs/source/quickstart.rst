@@ -1,4 +1,4 @@
-Getting Started with Iscard
+Quickstart
 ===========================
 
 
@@ -24,9 +24,8 @@ To create the model, type the following command ::
 Test a sample
 -------------
 
-After the model creation, you can test a sample against the model:
+After the model creation, you can test a sample against the model ::
 
-.. prompt:: bash $
 
     iscard test -b sample.bam -m model.h5 -o test.h5
 
