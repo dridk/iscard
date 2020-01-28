@@ -2,13 +2,13 @@ import numpy as np
 import pandas as pd 
 import pysamstats
 import pysam
-from sklearn.preprocessing import MinMaxScaler, StandardScaler,MaxAbsScaler
-import matplotlib.pyplot as plt
+# from sklearn.preprocessing import MinMaxScaler, StandardScaler,MaxAbsScaler
+# import matplotlib.pyplot as plt
 
 import os 
 import re 
 from tqdm import tqdm
-import pprint 
+# import pprint 
 
 def read_bed(filename:str) -> pd.DataFrame:
     """return a dataFrame from bed bedfile 
@@ -22,45 +22,42 @@ def read_bed(filename:str) -> pd.DataFrame:
     Returns:
         pd.DataFrame: a Dataframe with 4 colonnes : chr, start,end, name
     """
-    return pd.read_csv(filename, sep="\t", header=None, names=["chrom","start","end","name"])
+    return pd.read_csv(filename, sep="\t", header=None, names=["chrom","start","end","name"]).drop_duplicates()
 
 
 
-def get_coverage(bamfile: list, chrom: str, start: int, end: int, window = 1, agg = np.mean) -> pd.DataFrame:
+def get_coverage(bamfile: list, chrom: str, start: int, end: int) -> pd.DataFrame:
     '''Get read depth from from bam files according location  
-    
+
     Args:
         bamfile (list): list of bam file with index
         chrom (str): chromosome name
         start (int): start position of interest
         end (int): end position of interest
-        window (int, optional): window size for grouping. By default no group are performed
-        agg (function, optional): Aggregate function for grouping. Can be a litteral like (mean,max,min,sum, mediam)
-    
+      
     Returns:
         pd.DataDrame: A dataframe with chromosom, position and depth for each bam file 
     
     '''
+
     mybam = pysam.AlignmentFile(bamfile)
-    
     df = pd.DataFrame(pysamstats.load_coverage(mybam,chrom=chrom,start=start,end=end, truncate=True, pad=True, fields = ["chrom", "pos", "reads_all"]))
     
     df["chrom"] = df["chrom"].apply(lambda x : x.decode())
     df.rename({"reads_all": "depth"}, inplace=True, axis=1)
     
-    if window and agg:
-        if window > 1:
-        # Group every window line  and aggregate depth 
-            return df.groupby(df.index // window).agg({"chrom":"first", "pos":"first" , "depth":agg})
+    # if window > 1 and agg:
+    #     # Group every window line  and aggregate depth 
+    #     return df.groupby(df.index // window).agg({"chrom":"first", "pos":"first" , "depth":agg})
 
     return df 
 
 
-def get_coverages_from_bed(bamlist, bedfile, window=1, agg="mean"):
+def get_coverages_from_bed(bamfiles, bedfile):
     '''Get coverage dataframe from one of many bam file within a bedfile
     
     Args:
-        bamlist (str): list of bam files
+        bamlists (list): list of bam files
         bedfile (str): a bed file with 4 colonnes (chr,start,end,name)
         window (int, optional): window size 
         agg (str, optional): Aggregate function 
@@ -73,24 +70,16 @@ def get_coverages_from_bed(bamlist, bedfile, window=1, agg="mean"):
     
     all_df = []
     
-    tqdm_range =  tqdm(bed.iterrows(), total = len(bed), desc="Read bam files", leave=True)
-
-    for _, row in tqdm_range:
-
+    for _, row in tqdm(bed.iterrows(), total = len(bed)):
         chrom = row["chrom"]
         start = row["start"]
-        end   = row["end"]
-        name  = row["name"]
-
-        tqdm_range.set_description(f"analysing region {chrom}:{start}-{end}")
-        tqdm_range.refresh() 
-
+        end = row["end"]
+        name = row["name"]
         
-        for index, bam in  enumerate(bamlist):
-
+        for index, bam in  enumerate(bamfiles):
             sample_name = os.path.basename(bam).replace(".bam","")
-      
-            sample_df = get_coverage(bam, chrom, start, end, window, agg= lambda x: np.around(np.mean(x), 2))
+            
+            sample_df = get_coverage(bam, chrom, start, end)
 
             if index == 0:
                 df = sample_df
@@ -102,9 +91,10 @@ def get_coverages_from_bed(bamlist, bedfile, window=1, agg="mean"):
                 
         all_df.append(df)
     
-    final = pd.concat(all_df).reset_index(drop=True)   
+    final = pd.concat(all_df).reset_index(drop=True).drop_duplicates() 
     final = final.set_index(["name","chrom","pos"])
     return final
+            
             
 
 def scale_dataframe(df):
@@ -151,6 +141,8 @@ def create_model(bamlist: list, bedfile:str, output:str, window = 1, agg="mean")
 def test_sample(bam: str, model: str, output: str):
 
     metadata = pd.read_hdf(model, "metadata")
+
+#    print(model)
     model = pd.read_hdf(model, "model")
 
     region = metadata["region"]
@@ -158,13 +150,16 @@ def test_sample(bam: str, model: str, output: str):
     agg = metadata["agg"]
 
     sample_df = get_coverages_from_bed([bam],region, window = window, agg = agg )
+    
+    depth = sample_df.iloc[:,0]
     sample_df = scale_dataframe(sample_df)
 
     model = model.reset_index()
 
-    model["sample"] = sample_df.reset_index(drop=True).iloc[:,0]
-    model["sample_z"]  = ( model["sample"] - model["mean"]) / model["std"]
-    model["sample_zsmooth"] = model["sample_z"].rolling(300).mean()
+    model["depth"] = depth.reset_index(drop=True)
+    model["depth_scale"] = sample_df.reset_index(drop=True).iloc[:,0]
+    model["z"]  = ( model["depth_scale"] - model["mean"]) / model["std"]
+    model["zscore"] = model["z"].rolling(300).mean()
 
     model.to_hdf(output, key="sample")
 
