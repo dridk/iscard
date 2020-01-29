@@ -1,4 +1,4 @@
-import argparse 
+import argparse
 import sys
 
 
@@ -16,97 +16,145 @@ parser = argparse.ArgumentParser(
     info        Get some info about a model
 
     """
+)
 
-    )
-
-subparsers = parser.add_subparsers(title="sub command",dest='subcommand')
+subparsers = parser.add_subparsers(title="sub command", dest="subcommand")
 
 
-learn_parser = subparsers.add_parser('learn',
+learn_parser = subparsers.add_parser(
+    "learn",
     usage="""
     Used to create a model from normal bam samples:
 
         Exemple:
 
         iscard learn -b normal/*.bam  -r manifest.bed -o model.h5
-    """ )
+    """,
+)
 
 learn_parser.add_argument("-b", "--bam", nargs="+", help="bam files", required=True)
-learn_parser.add_argument("-r", "--region", help="bed file of sequencing region", required=True)
-learn_parser.add_argument("-o", "--output", help="write the model into a hdf5 file", required=True)
+learn_parser.add_argument(
+    "-r", "--region", help="bed file of sequencing region", required=True
+)
+learn_parser.add_argument(
+    "-o", "--output", help="write the model into a hdf5 file", required=True
+)
 # learn_parser.add_argument("-w", "--window", help="window size")
 # learn_parser.add_argument("-a", "--aggregate", help="aggregate function")
 
-test_parser = subparsers.add_parser('test',
+test_parser = subparsers.add_parser(
+    "test",
     usage="""
     Test a bam file against a model and compute z-score. 
 
         Exemple:
 
         iscard test -b sample.bam  -m model.h5 -o test.h5
-    """ )
+    """,
+)
 
 test_parser.add_argument("-b", "--bam", help="A sample bam file to test", required=True)
-test_parser.add_argument("-m", "--model", help="Model created by `iscard learn`", required=True)
-test_parser.add_argument("-o", "--output", help="write test result into a hdf5 file", required=True)
+test_parser.add_argument(
+    "-m", "--model", help="Model created by `iscard learn`", required=True
+)
+test_parser.add_argument(
+    "-o", "--output", help="write test result into a hdf5 file", required=True
+)
 
-call_parser = subparsers.add_parser('call',
+call_parser = subparsers.add_parser(
+    "call",
     usage="""
     Call cnv from a test file according z-score threashold and a cumulative count of outsider  
 
         Exemple:
 
         iscard call -i test.h5 > call.txt 
-    """ 
-    )
+    """,
+)
 
-call_parser.add_argument("-i", "--input", help="test file created by `iscard test`", required=True)
-call_parser.add_argument("-t", "--threshold", help="zscore threshold", default=3 )
-call_parser.add_argument("-m", "--min", help="minimum cumulative position where zscore is under threshold", default=100)
+call_parser.add_argument(
+    "-i", "--input", help="test file created by `iscard test`", required=True
+)
+call_parser.add_argument("-t", "--threshold", help="zscore threshold", default=3)
+call_parser.add_argument(
+    "-m",
+    "--min",
+    help="minimum cumulative position where zscore is under threshold",
+    default=100,
+)
 
 
-bedgraph_parser = subparsers.add_parser('bedgraph',
+bedgraph_parser = subparsers.add_parser(
+    "bedgraph",
     usage="""
     Create a bedgraph from a test file. You can select which metrics you want to output  
 
         Exemple:
 
         iscard bedgraph -i test.h5 -m zscore > test.bedgraph
-    """ 
-    )
-bedgraph_parser.add_argument("-i", "--input", help="test file created by `iscard test`", required=True)
-bedgraph_parser.add_argument("-m", "--metrics", help="Variable to use", choices=["mean","zscore","zscore_smooth"])
+    """,
+)
+bedgraph_parser.add_argument(
+    "-i", "--input", help="test file created by `iscard test`", required=True
+)
+bedgraph_parser.add_argument(
+    "-m",
+    "--metrics",
+    help="Variable to use",
+    choices=["mean", "zscore", "zscore_smooth"],
+)
 
 
-plot_parser = subparsers.add_parser('plot',
+plot_parser = subparsers.add_parser(
+    "plot",
     usage="""
     Plot a graph into an image from a test file.  
 
         Exemple:
 
         iscard plot -i test.h5 -name GJB2 -o result.png
-    """ 
-    )
-plot_parser.add_argument("-i", "--input", help="test file created by `iscard test`", required=True)
-plot_parser.add_argument("-o", "--output", help="Plot test into an image", required=True)
-plot_parser.add_argument("-n", "--name", help="select data within a name region. The name comes from the bed file ")
-plot_parser.add_argument("-c", "--coordinate", help="select data between range position. e.g:324234-234234", default=str())
-plot_parser.add_argument("-t", "--threshold", help="zscore threshold", default=3 )
-plot_parser.add_argument("-m", "--min", help="minimum cumulative position where zscore is under threshold", default=100)
+    """,
+)
+plot_parser.add_argument(
+    "-i", "--input", help="test file created by `iscard test`", required=True
+)
+plot_parser.add_argument(
+    "-o", "--output", help="Plot test into an image", required=True
+)
+plot_parser.add_argument(
+    "-n",
+    "--name",
+    help="select data within a name region. The name comes from the bed file ",
+)
+plot_parser.add_argument(
+    "-c",
+    "--coordinate",
+    help="select data between range position. e.g:324234-234234",
+    default=str(),
+)
+plot_parser.add_argument("-t", "--threshold", help="zscore threshold", default=3)
+plot_parser.add_argument(
+    "-m",
+    "--min",
+    help="minimum cumulative position where zscore is under threshold",
+    default=100,
+)
 
 
-
-info_parser = subparsers.add_parser('info',
+info_parser = subparsers.add_parser(
+    "info",
     usage="""
     display model information  
 
         Exemple:
 
         iscard info -m model.h5 
-    """ 
-    )
+    """,
+)
 
-info_parser.add_argument("-m", "--model", help="Model created by `iscard learn`", required=True)
+info_parser.add_argument(
+    "-m", "--model", help="Model created by `iscard learn`", required=True
+)
 
 
 # test_parser = subparsers.add_parser('report')
@@ -115,16 +163,12 @@ info_parser.add_argument("-m", "--model", help="Model created by `iscard learn`"
 # test_parser.add_argument("-o", "--output", help="output results as a bedgraph")
 
 
-
-
 # test_parser = subparsers.add_parser('render')
 # test_parser.add_argument("-r", "--result", help="result file generated by `iscard test`")
 # test_parser.add_argument("-o", "--output", help="html output file")
 
 
-if __name__ == '__main__':
-
-
+if __name__ == "__main__":
 
     args = parser.parse_args()
 
@@ -136,26 +180,26 @@ if __name__ == '__main__':
     # 	df = get_coverages_from_bed(args.bam, args.region, args.window, args.aggregate)
     # 	df.reset_index().to_hdf(args.output, key="raw", mode="w")
 
-    from iscard.core import (get_coverages_from_bed, 
-    create_model,
-    test_sample,
-    plot_sample,
-    bedgraph_sample,
-    print_model_info)
-
+    from iscard.core import (
+        get_coverages_from_bed,
+        create_model,
+        test_sample,
+        plot_sample,
+        bedgraph_sample,
+        print_model_info,
+    )
 
     if "info" in args.subcommand:
         print_model_info(args.model)
 
     if "learn" in args.subcommand:
-    	create_model(args.bam, args.region, args.output, window=None, agg=None)
+        create_model(args.bam, args.region, args.output, window=None, agg=None)
 
     if "test" in args.subcommand:
-    	test_sample(args.bam, args.model, args.output)
+        test_sample(args.bam, args.model, args.output)
 
     if "plot" in args.subcommand:
-    	plot_sample(args.input, args.name, args.coordinate, args.output)
+        plot_sample(args.input, args.name, args.coordinate, args.output)
 
     if "bedgraph" in args.subcommand:
-    	bedgraph_sample(args.input, args.value)
-
+        bedgraph_sample(args.input, args.value)
