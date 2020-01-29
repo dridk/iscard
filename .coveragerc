@@ -1,0 +1,2 @@
+[run]
+omit = iscard/__main__.py

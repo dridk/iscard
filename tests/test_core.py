@@ -43,7 +43,7 @@ def test_get_coverage():
 def test_get_coverages_from_bed():
 	
 	names = list(core.read_bed(cm.BEDFILE)["name"].unique())
-	sample_count = 10
+	sample_count = 3
 	bamlist = cm.create_fake_bamlist(sample_count)
 	df = core.get_coverages_from_bed(bamlist,cm.BEDFILE, show_progress= False)
 
