@@ -1,6 +1,6 @@
 import argparse
 import sys
-
+import pandas as pd
 
 parser = argparse.ArgumentParser(
     usage="""
@@ -118,6 +118,10 @@ plot_parser = subparsers.add_parser(
 plot_parser.add_argument(
     "-i", "--input", help="test file created by `iscard test`", required=True
 )
+
+plot_parser.add_argument(
+    "-m", "--model", help="model file ", required=True
+)
 plot_parser.add_argument(
     "-o", "--output", help="Plot test into an image", required=True
 )
@@ -125,20 +129,11 @@ plot_parser.add_argument(
     "-n",
     "--name",
     help="select data within a name region. The name comes from the bed file ",
+    required = True
 )
-plot_parser.add_argument(
-    "-c",
-    "--coordinate",
-    help="select data between range position. e.g:324234-234234",
-    default=str(),
-)
+
 plot_parser.add_argument("-t", "--threshold", help="zscore threshold", default=3)
-plot_parser.add_argument(
-    "-m",
-    "--min",
-    help="minimum cumulative position where zscore is under threshold",
-    default=100,
-)
+
 
 
 info_parser = subparsers.add_parser(
@@ -180,26 +175,32 @@ if __name__ == "__main__":
     # 	df = get_coverages_from_bed(args.bam, args.region, args.window, args.aggregate)
     # 	df.reset_index().to_hdf(args.output, key="raw", mode="w")
 
-    from iscard.core import (
-        get_coverages_from_bed,
-        create_model,
-        test_sample,
-        plot_sample,
-        bedgraph_sample,
-        print_model_info,
-    )
+    from iscard import core, Model
+    from iscard.model import plot_test, call_test
 
     if "info" in args.subcommand:
-        print_model_info(args.model)
+        model = Model(args.model)
+        model.print_infos()
 
     if "learn" in args.subcommand:
-        create_model(args.bam, args.region, args.output, window=None, agg=None)
+        model = Model()
+        model.learn(args.bam, args.region, show_progress=True)
+        model.to_hdf5(args.output)
 
     if "test" in args.subcommand:
-        test_sample(args.bam, args.model, args.output)
+        model = Model(args.model)
+        test_data = model.test_sample(args.bam)
+        test_data.to_csv(args.output, sep="\t")
+
+    if "call" in args.subcommand:
+        test_data = pd.read_csv(args.input, sep="\t")
+        for region in call_test(test_data):
+            print(*region, sep="\t")
+        
+        #df.to_csv(args.output, sep="\t")
 
     if "plot" in args.subcommand:
-        plot_sample(args.input, args.name, args.coordinate, args.output)
 
-    if "bedgraph" in args.subcommand:
-        bedgraph_sample(args.input, args.value)
+        test_data = pd.read_csv(args.input, sep="\t")
+        model = Model(args.model)
+        plot_test(args.output, test_data, model, args.name)

@@ -59,3 +59,13 @@ def test_scale_dataframe():
 	#If scalled, A and B should be same 
 	df_sum = list(core.scale_dataframe(df).sum())
 	assert df_sum[0] == df_sum[1]
+
+
+def test_call_region():
+
+	serie = pd.Series([1,2,4,4,4,4,3,1])
+
+	for region in core.call_region(serie, threshold=3, consecutive_count=3 ):
+		begin, end = region 
+		assert begin == 2 
+		assert end == 5

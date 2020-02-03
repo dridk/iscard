@@ -9,9 +9,7 @@ import os
 import re
 from tqdm import tqdm
 
-
-#from iscard.model import Model
-
+import iscard
 # import pprint
 
 
@@ -127,6 +125,27 @@ def scale_dataframe(df):
     new_df.update(scale_df.set_index(new_df.index))
 
     return new_df
+
+
+def call_region(serie : pd.Series, threshold = 2, consecutive_count = 100):
+    counter = 0
+    valid = False
+
+    for index, i in serie.items():
+        if abs(i) > threshold:
+            counter+= 1
+            if counter == 1:
+                begin = index
+        else:
+            counter = 0
+            if valid == True:
+                valid =  False
+                yield (begin,end)
+
+        if counter > consecutive_count:
+            end = index
+            valid = True
+                
 
 
 

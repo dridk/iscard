@@ -44,9 +44,9 @@ def get_bed_interval(bedfile):
 
 		return df
 
-def create_fake_model(noise_mean = 0, noise_std = 1):
+def create_fake_model(size=10, noise_mean = 0, noise_std = 1):
 	model = Model()
-	bamlist = create_fake_bamlist(10)
+	bamlist = create_fake_bamlist(size)
 
 	model.bamlist = bamlist
 	model.bedfile = BEDFILE
@@ -55,6 +55,7 @@ def create_fake_model(noise_mean = 0, noise_std = 1):
 	noise = np.random.normal(noise_mean, noise_std, model.raw.shape)
 	model.raw = model.raw.add(noise,axis=0).astype(int)
 
-	
+	model.create_inter_samples_model()
+	model.create_intra_samples_model()
 
 	return model

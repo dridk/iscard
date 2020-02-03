@@ -3,7 +3,9 @@ from sklearn.metrics import pairwise_distances_chunked, pairwise_distances
 from itertools import product
 import numpy as np
 import os
-from iscard import core
+import matplotlib.pyplot as plt
+
+from iscard import core, __version__
 
 
 class Model(object):
@@ -12,14 +14,22 @@ class Model(object):
 
         self.raw = None
         self.bamlist = []
-
+        self.bedfile = None
         self.inter_model = None
         self.intra_model = None
         self.step = 100
+        self.test_data = None
 
         if modelfile:
             self.from_hdf5(modelfile)
 
+    def get_group_names(self):
+        """Get group name from self.bedfile
+        
+        Returns:
+            list: unique names list from self.bedfile
+        """
+        return list(core.read_bed(self.bedfile)["name"].unique())
 
     def learn(self, bamlist: list, bedfile: str, show_progress = True):
         """Create intrasample and intersample model
@@ -27,6 +37,8 @@ class Model(object):
         Args:
             bamlist (list): List of bam files 
         """
+
+        print("start learning")
         self.bamlist = bamlist
         self.bedfile = bedfile
 
@@ -46,9 +58,10 @@ class Model(object):
                 "min": self.norm_raw.min(axis=1),
                 "max": self.norm_raw.max(axis=1),
             }
-        ).reset_index()
+        )
 
     def create_intra_samples_model(self):
+
         
         # Keep row every step line 
         # reset index because we are going to work on integer index
@@ -118,38 +131,39 @@ class Model(object):
         for chunk in pairwise_distances_chunked(sub_raw, metric="correlation",reduce_func = _reduce, n_jobs=10,working_memory=1):
             all_reduce_chunk.append(chunk)
 
-        self.intra_model  = pd.concat(all_reduce_chunk)
-        self.intra_model.index = sub_raw.index
-        self.intra_model.reset_index(inplace=True)
+        self.intra_model = pd.concat(all_reduce_chunk)
+        ss = sub_raw.reset_index(drop=True)
 
-        ## Let's now add linear regression parameter for each line in the model 
-        for index, row in self.intra_model.iterrows():
-            # create source multiindex and target multiindex  
-            name,chrom,pos = tuple(row[["name","chrom","pos"]])
-            target_name,target_chrom, target_pos = tuple(self.intra_model.iloc[row["idx"],:][["name","chrom","pos"]])
+
+        for i, row in self.intra_model.iterrows():
             
-            if row["corr"] == 0:
-                continue
+            j = row["idx"]
 
-            # Get values and compute linear regression 
-            x = self.raw.loc[(name,chrom,pos)]
-            y = self.raw.loc[(target_name,target_chrom,target_pos)]
+            x  = ss.loc[i,:]
+            y  = ss.loc[j,:]
             
             try:
                 coef, intercept = tuple(np.polyfit(x,y,1))
+                yp = x*coef + intercept
+                error = yp - y 
+                std = error.std()
+
+            
             except:
-                # Todo use debug
-                print("error for ", name, chrom,pos)
-                coef, intercept = 0, 0
-            
-            # Compute residual and standard deviation 
-            yp = coef * x + intercept
-            residual = yp - y
-            std = residual.std()
-            
-            self.intra_model.loc[index,"coef"] = coef
-            self.intra_model.loc[index,"intercept"] = intercept    
-            self.intra_model.loc[index,"std"] = std    
+                coef, intercept = 0,0 
+                std = pd.np.NaN
+
+         
+
+         
+            self.intra_model.loc[i,"coef"] = coef
+            self.intra_model.loc[i,"intercept"] = intercept    
+            self.intra_model.loc[i,"std"] = std    
+
+
+        #self.intra_model.set_index(sub_raw.index, inplace=True)
+        self.intra_model = self.intra_model.set_index(sub_raw.index)
+        
 
 
     def to_hdf5(self, filename):
@@ -162,7 +176,8 @@ class Model(object):
         pd.Series(
             {
             "step": self.step,
-            "region":os.path.abspath(self.bedfile)
+            "region":os.path.abspath(self.bedfile),
+            "version": __version__
 
             }).to_hdf(filename, key="metadata")
 
@@ -178,4 +193,189 @@ class Model(object):
 
         metadata = pd.read_hdf(filename, key="metadata")
         self.step = metadata["step"]
+        self.bedfile =  metadata["region"]
+
+
+    def test_sample(self,bamfile:str):
+    
+        del_coverage = core.get_coverages_from_bed([bamfile], self.bedfile)
+
+        dd = del_coverage.copy()
+        dd.columns = ["depth"]
+
+        # Compute inter model 
+        dd["depth_norm"] = core.scale_dataframe(dd)["depth"]
+        dd["inter_z"] = (dd["depth_norm"] - self.inter_model["mean"])/ self.inter_model["std"]
+
+
+        # Compute intra model 
+        subset = dd.loc[self.intra_model.index]
+        subset["depth_pair"] = subset.iloc[self.intra_model["idx"],:].iloc[:,0].values
+        subset["depth_pair_predicted"] = (self.intra_model["coef"] * subset["depth"]) + self.intra_model["intercept"]
+        subset["corr"] = self.intra_model["corr"]
+        subset["error"] = subset["depth_pair_predicted"]  - subset["depth_pair"]
+        subset["intra_z"] = subset["error"] / self.intra_model["std"]
+
+        subset.drop(["depth","depth_norm","inter_z"], axis=1)
+        test_data = dd.join(subset.drop(["depth","depth_norm", "inter_z"], axis=1))
+        
+        return test_data
+
+
+
+    # def plot_test(self, filename:str, group_name:str, call = True,threshold = 2, consecutive_count = 1000 ):
+        
+    #     data = self.test_data.loc[group_name,:].reset_index()
+    #     mm = self.inter_model[["min","max","mean"]].loc[group_name,:].reset_index()
+
+    #     figure, ax = plt.subplots(3,1, figsize=(30,10))
+        
+    #     figure.suptitle("PKD1", fontsize=30)
+
+
+    #     ax[0].grid(True)
+    #     ax[0].set_xlabel('position')
+    #     ax[0].set_ylabel('raw depth')
+    #     ax[0].fill_between("pos","min", "max", color="lightgray", alpha=1, data = mm)
+    #     ax[0].plot(data["pos"], data["depth_norm"], color="#32afa9")
+
+
+    #     ax[1].grid(True)
+    #     ax[1].set_xlabel('position')
+    #     ax[1].set_ylabel('Inter z-score')
+    #     ax[1].plot(data["pos"], data["inter_z"], color="lightgray")
+    #     ax[1].plot(data["pos"], data["inter_z"].rolling(500).mean(), color="#32afa9")
+
+
+    #     #ax[0].plot(data["pos"], data["inter_z"].rolling(500).mean())
+
+    #     ax[2].grid(True)
+    #     ax[2].set_ylabel('Intra z-score')
+    #     ax[2].scatter(data["pos"],data["intra_z"], color="#32afa9")
+
+
+    #     # Plot region 
+    #     if call:
+    #         for region in self.call_test(group_name,"inter_z" ,threshold, consecutive_count):
+    #             x1, x2 = region 
+    #             ax[0].axvspan(x1,x2, alpha=0.5, color='red')
+    #             ax[1].axvspan(x1,x2, alpha=0.5, color='red')
+    #             ax[2].axvspan(x1,x2, alpha=0.5, color='red')
+
+
+
+
+    # def call_test(self, group_name, column = "inter_z", threshold = 1.96, consecutive_count = 1000):
+    #     """Call region from self.test_data
+        
+    #     Args:
+    #         group_name (str)
+        
+    #     Yields:
+    #         TYPE: region 
+    #     """
+    #     data = self.test_data.loc[group_name,:].reset_index()
+    #     for region in core.call_region(data[column], threshold, consecutive_count):
+
+    #         first, last = region 
+    #         x1 = data["pos"][first]
+    #         x2 = data["pos"][last]
+            
+    #         yield (x1,x2)
+
+
+    def __len__(self):
+        return len(self.raw)
+
+    def print_infos(self):
+
+        print("Depth position counts: {}".format(len(self.inter_model)))
+        print("bedfile: {}".format(self.bedfile))
+        print("sample rate: {}".format(self.step))
+
+        print("test data: {}".format(self.test_data is not  None))
+
+
+        print("Bam(s) used: {}".format(len(self.bamlist)))
+        for bam in self.bamlist:
+            print("\t - "+bam)
+
+        gps = self.get_group_names()
+
+        print("Group names(s): {}".format(len(gps)))
+        for g in gps:
+            print("\t - "+g)
+
+        print("Inter model shape: {}".format(self.inter_model.shape))
+        print("Intra model shape: {}".format(self.intra_model.shape))
+
+
+
+
+
+def call_test(test_data: pd.DataFrame, column = "inter_z", threshold = 1.96, consecutive_count = 1000):
+    """Call region from self.test_data
+    
+    Args:
+        group_name (str)
+    
+    Yields:
+        TYPE: region 
+    """
+
+    for region in core.call_region(test_data[column], threshold, consecutive_count):
+        first, last = region 
+        chrom = test_data["chrom"][first]
+        name = test_data["name"][first]
+
+        x1 = test_data["pos"][first]
+        x2 = test_data["pos"][last]
+        
+        yield (chrom,x1,x2, name)
+
+
+
+def plot_test(outputfile:str, test_data:pd.DataFrame, model: Model, group_name:str, call = True,threshold = 2, consecutive_count = 1000 ):
+    
+    
+    data = test_data.query("name == @group_name")
+    mm = model.inter_model[["min","max","mean"]].loc[group_name,:].reset_index()
+
+    figure, ax = plt.subplots(3,1, figsize=(30,10))
+    
+    figure.suptitle(group_name, fontsize=30)
+
+
+    ax[0].grid(True)
+    ax[0].set_xlabel('position')
+    ax[0].set_ylabel('raw depth')
+    ax[0].fill_between("pos","min", "max", color="lightgray", alpha=1, data = mm)
+    ax[0].plot(data["pos"], data["depth_norm"], color="#32afa9")
+
+
+    ax[1].grid(True)
+    ax[1].set_xlabel('position')
+    ax[1].set_ylabel('Inter z-score')
+    ax[1].plot(data["pos"], data["inter_z"], color="lightgray")
+    ax[1].plot(data["pos"], data["inter_z"].rolling(500).mean(), color="#32afa9")
+
+
+    #ax[0].plot(data["pos"], data["inter_z"].rolling(500).mean())
+
+    ax[2].grid(True)
+    ax[2].set_ylabel('Intra z-score')
+    ax[2].scatter(data["pos"],data["intra_z"], color="#32afa9")
+
+
+    # Plot region 
+    if call:
+        for region in call_test(data):
+            chrom, x1, x2, name = region 
+            ax[0].axvspan(x1,x2, alpha=0.5, color='red')
+            ax[1].axvspan(x1,x2, alpha=0.5, color='red')
+            ax[2].axvspan(x1,x2, alpha=0.5, color='red')
+
+    plt.savefig(outputfile)
+
+
 
