@@ -30,11 +30,11 @@ using info command line
 
     Model version: 0.0.4.dev0
 	Depth position counts: 385915
-	bedfile: /home/sschutz/working_directory/notebook/pkd/panel.bed
+	bedfile: /pkd/panel.bed
 	sample rate: 100
 	Bam(s) used: 2
-	         - /home/sschutz/working_directory/notebook/pkd/dataset/tiny/PKD180652_S1.bam
-	         - /home/sschutz/working_directory/notebook/pkd/dataset/tiny/PKD180656_S5.bam
+	         - /pkd/dataset/tiny/sample1.bam
+	         - /pkd/pkd/dataset/tiny/sample2.bam
 	Group names(s): 14
 	         - CTRC
 	         - PKD2
