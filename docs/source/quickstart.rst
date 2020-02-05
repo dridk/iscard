@@ -72,6 +72,12 @@ Plot results as svg or png file as follow :
 
     iscard plot -i test.result -m model.h5 -o plot.png	
 
+.. figure:: plot.png
+
+   Visualization of inter and intra z-score in PKD1 gene. The picture show a deletion mark in red. 
+
+
+
 Visualizing results
 -------------------
 
