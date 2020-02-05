@@ -5,7 +5,8 @@ from tempfile import mkdtemp
 import csv 
 import pandas as pd
 import numpy as np
-from iscard import core, Model  
+from iscard import core
+from iscard.model import * 
 
 BEDFILE = "data/region.bed"
 BAMFILE = "data/test.bam"

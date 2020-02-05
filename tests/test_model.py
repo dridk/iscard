@@ -1,6 +1,6 @@
 
-from iscard import core, Model
-from iscard.model import call_test, plot_test
+from iscard import core
+from iscard.model import Model, call_test, plot_test
 import pytest 
 import common as cm 
 import numpy as np 
