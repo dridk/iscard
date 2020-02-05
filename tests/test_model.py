@@ -35,7 +35,7 @@ def test_create_intra_samples_model():
     assert model.intra_model is not None
 
     bed_interval = cm.get_bed_interval(cm.BEDFILE)
-    bed_interval = bed_interval[bed_interval.index % model.step == 0]
+    bed_interval = bed_interval[bed_interval.index % model.sampling == 0]
     assert len(model.intra_model) == len(bed_interval)
 
     assert "idx" in model.intra_model.columns

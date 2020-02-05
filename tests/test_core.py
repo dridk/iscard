@@ -7,8 +7,7 @@ import os
 import glob 
 
 import common as cm
-
-
+import contextlib
 
 def create_fake_bamlist(count = 10):
 	
@@ -69,3 +68,10 @@ def test_call_region():
 		begin, end = region 
 		assert begin == 2 
 		assert end == 5
+
+def test_bedgraph():
+
+	df = pd.DataFrame({"chrom":[1,2], "pos":[10,20], "depth":[33,44]})
+
+	with contextlib.redirect_stdout(open("/dev/null","w")):
+		core.print_bedgraph(df, "depth", "name")

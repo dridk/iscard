@@ -1,9 +1,18 @@
 import numpy as np
 import pandas as pd
-import pysamstats
 import pysam
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, MaxAbsScaler
 import matplotlib.pyplot as plt
+
+
+# Pysamstats warns this 
+# RuntimeWarning: pysam.libcalignedsegment.PileupColumn size changed, 
+# may indicate binary incompatibility. Expected 72 from C header, got 88 from PyObject
+# I cannot fixed it, don't show it 
+import warnings
+with warnings.catch_warnings(record=True) as w:
+    import pysamstats
+
 
 import os
 import re
@@ -11,6 +20,9 @@ from tqdm import tqdm
 
 import iscard
 # import pprint
+
+class IscardError(Exception):
+    pass
 
 
 def read_bed(filename: str) -> pd.DataFrame:
@@ -43,7 +55,7 @@ def get_coverage(bamfile: list, chrom: str, start: int, end: int) -> pd.DataFram
         pd.DataDrame: A dataframe with chromosom, position and depth for each bam file 
     
     """
-
+    import warnings
     mybam = pysam.AlignmentFile(bamfile)
     df = pd.DataFrame(
         pysamstats.load_coverage(
@@ -146,6 +158,23 @@ def call_region(serie : pd.Series, threshold = 2, consecutive_count = 100):
             end = index
             valid = True
                 
+
+def print_bedgraph(df: pd.DataFrame, column: str, name = None):
+
+    if not name:
+        name = "Iscard data"
+
+    print(f"""track type=bedGraph name="{name}" description="BedGraph format" 
+        visibility=full color=200,100,0 altColor=0,100,200 priority=20")""")
+
+    for index, row in df.iterrows():
+        chrom = row["chrom"]
+        start = row["pos"]
+        end = row["pos"] + 1 
+        value = row[column]
+
+        print(chrom,start, end, value, sep="\t")
+
 
 
 

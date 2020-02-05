@@ -4,11 +4,25 @@ from itertools import product
 import numpy as np
 import os
 import matplotlib.pyplot as plt
-
+import logging
 from iscard import core, __version__
 
 
+
 class Model(object):
+
+    """Compute intermodel and intramodel from bam file and serialize it into a hdf5 file 
+    
+    Attributes:
+        bamlist (list): List of bam files 
+        bedfile (str): Region bedfile
+        inter_model (pd.DataFrame): contains inter_model z-score
+        intra_model (pd.DataFrame): contains intra_model z-score
+        norm_raw (pd.DataFrame): Normalized Raw depth 
+        raw (pd.DataFrame): Raw depth
+        sampling (int): Sampling rate for intra_model
+    """
+
     def __init__(self, modelfile = None):
         super().__init__()
 
@@ -17,19 +31,21 @@ class Model(object):
         self.bedfile = None
         self.inter_model = None
         self.intra_model = None
-        self.step = 100
-        self.test_data = None
+        self.model_version = __version__
+        self.sampling = 100
+        self.jobs = -1
 
         if modelfile:
             self.from_hdf5(modelfile)
 
     def get_group_names(self):
-        """Get group name from self.bedfile
+        """Return group name from bedfile as defined in the fouth column
         
         Returns:
-            list: unique names list from self.bedfile
+            list: list of goup name 
         """
         return list(core.read_bed(self.bedfile)["name"].unique())
+
 
     def learn(self, bamlist: list, bedfile: str, show_progress = True):
         """Create intrasample and intersample model
@@ -37,8 +53,7 @@ class Model(object):
         Args:
             bamlist (list): List of bam files 
         """
-
-        print("start learning")
+        logging.info('Create Model bam files')
         self.bamlist = bamlist
         self.bedfile = bedfile
 
@@ -48,7 +63,10 @@ class Model(object):
         self.create_intra_samples_model()
 
     def create_inter_samples_model(self):
-
+        """Create inter sample model
+        This model compute the mean and the standard deviation from training sampling.
+        This will be used later to compute a inter z-score in a new sample
+        """
         self.norm_raw = core.scale_dataframe(self.raw)
         self.inter_model = pd.DataFrame(
             {
@@ -61,12 +79,14 @@ class Model(object):
         )
 
     def create_intra_samples_model(self):
-
-        
+        """Create intra sample model
+        This model compute depth correlation within samples. 
+        This will be used later to compute a new intra z-score in a new sample
+        """
         # Keep row every step line 
         # reset index because we are going to work on integer index
         sub_raw = self.raw.reset_index()
-        sub_raw = sub_raw[sub_raw.index % self.step == 0]
+        sub_raw = sub_raw[sub_raw.index % self.sampling == 0]
 
         # Create Mask index 
         # This is used to avoid pairwise comparaison within same name   
@@ -128,7 +148,8 @@ class Model(object):
         
         all_reduce_chunk = []
         
-        for chunk in pairwise_distances_chunked(sub_raw, metric="correlation",reduce_func = _reduce, n_jobs=10,working_memory=1):
+        # -1 mean all jobs 
+        for chunk in pairwise_distances_chunked(sub_raw, metric="correlation",reduce_func = _reduce, n_jobs= self.jobs):
             all_reduce_chunk.append(chunk)
 
         self.intra_model = pd.concat(all_reduce_chunk)
@@ -141,63 +162,90 @@ class Model(object):
 
             x  = ss.loc[i,:]
             y  = ss.loc[j,:]
-            
+
             try:
                 coef, intercept = tuple(np.polyfit(x,y,1))
                 yp = x*coef + intercept
                 error = yp - y 
                 std = error.std()
-
-            
             except:
                 coef, intercept = 0,0 
                 std = pd.np.NaN
 
-         
-
-         
             self.intra_model.loc[i,"coef"] = coef
             self.intra_model.loc[i,"intercept"] = intercept    
             self.intra_model.loc[i,"std"] = std    
 
 
-        #self.intra_model.set_index(sub_raw.index, inplace=True)
         self.intra_model = self.intra_model.set_index(sub_raw.index)
         
 
+    def to_hdf5(self, filename: str):
+        """Serialize model to hdf5
+        
+        Args:
+            filename (str): hdf5 filename. eg: model.h5
+        
+        Raises:
+            core.IscardError: If model has not been trained 
+        """
+        if self.raw is None or self.intra_model is None or self.inter_model is None:
+            raise core.IscardError("model has not been computed")
 
-    def to_hdf5(self, filename):
         self.raw.to_hdf(filename,"raw")
-
         self.inter_model.to_hdf(filename,"inter_model")
         self.intra_model.to_hdf(filename,"intra_model")
         
         pd.Series(self.bamlist).to_hdf(filename,"bamlist")
-        pd.Series(
+        metadata = pd.Series(
             {
-            "step": self.step,
-            "region":os.path.abspath(self.bedfile),
-            "version": __version__
+            "sampling": str(self.sampling),
+            "region":str(os.path.abspath(self.bedfile)),
+            "version": self.model_version
 
-            }).to_hdf(filename, key="metadata")
+            })
+
+        metadata.to_hdf(filename,"metadata")
 
         
 
-    def from_hdf5(self, filename):
+    def from_hdf5(self, filename:str):
+        """Set the model instance from a hdf5 file
+        
+        Args:
+            filename (str): hdf5 filename. eg: model.h5
+        """
         self.raw = pd.read_hdf(filename,"raw")
-
         self.inter_model = pd.read_hdf(filename,"inter_model")
         self.intra_model = pd.read_hdf(filename,"intra_model")
-        
         self.bamlist = list(pd.read_hdf(filename,"bamlist"))
 
         metadata = pd.read_hdf(filename, key="metadata")
-        self.step = metadata["step"]
+        self.sampling = int(metadata["sampling"])
         self.bedfile =  metadata["region"]
+        self.model_version = metadata["version"]
 
-
-    def test_sample(self,bamfile:str):
+    def test_sample(self,bamfile:str) -> pd.DataFrame:
+        """Test a new sample against the current model
+        
+        model = Model("model.h5")
+        data = model.test_sample("sample.bam")
     
+        The dataframe contains for each position : 
+
+            - depth : the raw depth 
+            - depth_norm: the normalized raw depth
+            - inter_z: the inter-model z-score
+            - depth_mate: the raw depth of the mate 
+            - depth_mate_predicted: the raw depth predicted by the intra-model
+            - intra_z: the intra-model z-score 
+
+        Args:
+            bamfile (str): A sample bam file
+        
+        Returns:
+            pd.DataFrame
+        """
         del_coverage = core.get_coverages_from_bed([bamfile], self.bedfile)
 
         dd = del_coverage.copy()
@@ -210,10 +258,10 @@ class Model(object):
 
         # Compute intra model 
         subset = dd.loc[self.intra_model.index]
-        subset["depth_pair"] = subset.iloc[self.intra_model["idx"],:].iloc[:,0].values
-        subset["depth_pair_predicted"] = (self.intra_model["coef"] * subset["depth"]) + self.intra_model["intercept"]
+        subset["depth_mate"] = subset.iloc[self.intra_model["idx"],:].iloc[:,0].values
+        subset["depth_mate_predicted"] = (self.intra_model["coef"] * subset["depth"]) + self.intra_model["intercept"]
         subset["corr"] = self.intra_model["corr"]
-        subset["error"] = subset["depth_pair_predicted"]  - subset["depth_pair"]
+        subset["error"] = subset["depth_mate_predicted"]  - subset["depth_mate"]
         subset["intra_z"] = subset["error"] / self.intra_model["std"]
 
         subset.drop(["depth","depth_norm","inter_z"], axis=1)
@@ -221,80 +269,21 @@ class Model(object):
         
         return test_data
 
-
-
-    # def plot_test(self, filename:str, group_name:str, call = True,threshold = 2, consecutive_count = 1000 ):
+    def __len__(self) -> int:
+        """Return row size of the model
         
-    #     data = self.test_data.loc[group_name,:].reset_index()
-    #     mm = self.inter_model[["min","max","mean"]].loc[group_name,:].reset_index()
-
-    #     figure, ax = plt.subplots(3,1, figsize=(30,10))
-        
-    #     figure.suptitle("PKD1", fontsize=30)
-
-
-    #     ax[0].grid(True)
-    #     ax[0].set_xlabel('position')
-    #     ax[0].set_ylabel('raw depth')
-    #     ax[0].fill_between("pos","min", "max", color="lightgray", alpha=1, data = mm)
-    #     ax[0].plot(data["pos"], data["depth_norm"], color="#32afa9")
-
-
-    #     ax[1].grid(True)
-    #     ax[1].set_xlabel('position')
-    #     ax[1].set_ylabel('Inter z-score')
-    #     ax[1].plot(data["pos"], data["inter_z"], color="lightgray")
-    #     ax[1].plot(data["pos"], data["inter_z"].rolling(500).mean(), color="#32afa9")
-
-
-    #     #ax[0].plot(data["pos"], data["inter_z"].rolling(500).mean())
-
-    #     ax[2].grid(True)
-    #     ax[2].set_ylabel('Intra z-score')
-    #     ax[2].scatter(data["pos"],data["intra_z"], color="#32afa9")
-
-
-    #     # Plot region 
-    #     if call:
-    #         for region in self.call_test(group_name,"inter_z" ,threshold, consecutive_count):
-    #             x1, x2 = region 
-    #             ax[0].axvspan(x1,x2, alpha=0.5, color='red')
-    #             ax[1].axvspan(x1,x2, alpha=0.5, color='red')
-    #             ax[2].axvspan(x1,x2, alpha=0.5, color='red')
-
-
-
-
-    # def call_test(self, group_name, column = "inter_z", threshold = 1.96, consecutive_count = 1000):
-    #     """Call region from self.test_data
-        
-    #     Args:
-    #         group_name (str)
-        
-    #     Yields:
-    #         TYPE: region 
-    #     """
-    #     data = self.test_data.loc[group_name,:].reset_index()
-    #     for region in core.call_region(data[column], threshold, consecutive_count):
-
-    #         first, last = region 
-    #         x1 = data["pos"][first]
-    #         x2 = data["pos"][last]
-            
-    #         yield (x1,x2)
-
-
-    def __len__(self):
+        Returns:
+            int
+        """
         return len(self.raw)
 
     def print_infos(self):
-
+        """Print description of the model 
+        """
+        print("Model version: {}".format(self.model_version))
         print("Depth position counts: {}".format(len(self.inter_model)))
         print("bedfile: {}".format(self.bedfile))
-        print("sample rate: {}".format(self.step))
-
-        print("test data: {}".format(self.test_data is not  None))
-
+        print("sample rate: {}".format(self.sampling))
 
         print("Bam(s) used: {}".format(len(self.bamlist)))
         for bam in self.bamlist:

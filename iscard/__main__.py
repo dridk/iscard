@@ -1,6 +1,7 @@
 import argparse
 import sys
 import pandas as pd
+import logging
 
 parser = argparse.ArgumentParser(
     usage="""
@@ -10,7 +11,6 @@ parser = argparse.ArgumentParser(
 
     learn       Create a model from multiple normal bam samples 
     test        Test a bam sample against the model  
-    call        Call duplication/deletion from a test file 
     plot        Create plot image from a test file
     bedgraph    Create a bedgraph from a test file 
     info        Get some info about a model
@@ -24,36 +24,35 @@ subparsers = parser.add_subparsers(title="sub command", dest="subcommand")
 learn_parser = subparsers.add_parser(
     "learn",
     usage="""
-    Used to create a model from normal bam samples:
+    Used to create a model from normal bam files:
 
         Exemple:
 
-        iscard learn -b normal/*.bam  -r manifest.bed -o model.h5
+        iscard learn -i normal/*.bam  -r manifest.bed -o model.h5
     """,
 )
 
-learn_parser.add_argument("-b", "--bam", nargs="+", help="bam files", required=True)
+learn_parser.add_argument("-i", "--input", nargs="+", help="bam files", required=True)
 learn_parser.add_argument(
     "-r", "--region", help="bed file of sequencing region", required=True
 )
 learn_parser.add_argument(
     "-o", "--output", help="write the model into a hdf5 file", required=True
 )
-# learn_parser.add_argument("-w", "--window", help="window size")
-# learn_parser.add_argument("-a", "--aggregate", help="aggregate function")
+
 
 test_parser = subparsers.add_parser(
     "test",
     usage="""
-    Test a bam file against a model and compute z-score. 
+    Test a bam file against a model and return z-scores into a tabular file
 
         Exemple:
 
-        iscard test -b sample.bam  -m model.h5 -o test.h5
+        iscard test -i sample.bam  -m model.h5 -o test.result
     """,
 )
 
-test_parser.add_argument("-b", "--bam", help="A sample bam file to test", required=True)
+test_parser.add_argument("-i", "--input", help="A sample bam file to test", required=True)
 test_parser.add_argument(
     "-m", "--model", help="Model created by `iscard learn`", required=True
 )
@@ -87,21 +86,21 @@ call_parser.add_argument(
 bedgraph_parser = subparsers.add_parser(
     "bedgraph",
     usage="""
-    Create a bedgraph from a test file. You can select which metrics you want to output  
+    Create a bedgraph from a test file. You can select which metrics you want to output.
 
         Exemple:
 
-        iscard bedgraph -i test.h5 -m zscore > test.bedgraph
+        iscard bedgraph -i test.result -c zscore > test.bedgraph
     """,
 )
 bedgraph_parser.add_argument(
     "-i", "--input", help="test file created by `iscard test`", required=True
 )
 bedgraph_parser.add_argument(
-    "-m",
-    "--metrics",
+    "-c",
+    "--column",
     help="Variable to use",
-    choices=["mean", "zscore", "zscore_smooth"],
+    choices=["depth","depth_norm", "inter_z", "intra_z"],
 )
 
 
@@ -112,7 +111,7 @@ plot_parser = subparsers.add_parser(
 
         Exemple:
 
-        iscard plot -i test.h5 -name GJB2 -o result.png
+        iscard plot -i test.result -m model.h5 -name GJB2 -o result.png
     """,
 )
 plot_parser.add_argument(
@@ -167,6 +166,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+
+    logging.basicConfig(level=logging.INFO)
+
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
@@ -184,12 +186,12 @@ if __name__ == "__main__":
 
     if "learn" in args.subcommand:
         model = Model()
-        model.learn(args.bam, args.region, show_progress=True)
+        model.learn(args.input, args.region, show_progress=True)
         model.to_hdf5(args.output)
 
     if "test" in args.subcommand:
         model = Model(args.model)
-        test_data = model.test_sample(args.bam)
+        test_data = model.test_sample(args.input)
         test_data.to_csv(args.output, sep="\t")
 
     if "call" in args.subcommand:
@@ -198,6 +200,10 @@ if __name__ == "__main__":
             print(*region, sep="\t")
         
         #df.to_csv(args.output, sep="\t")
+
+    if "bedgraph" in args.subcommand:
+        df = pd.read_csv(args.input, sep="\t")
+        core.print_bedgraph(df,args.column, "Iscard")
 
     if "plot" in args.subcommand:
 
