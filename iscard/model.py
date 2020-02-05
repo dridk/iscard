@@ -10,7 +10,6 @@ from iscard import core, __version__
 
 
 class Model(object):
-
     """Compute intermodel and intramodel from bam file and serialize it into a hdf5 file 
     
     Attributes:
@@ -18,6 +17,8 @@ class Model(object):
         bedfile (str): Region bedfile
         inter_model (pd.DataFrame): contains inter_model z-score
         intra_model (pd.DataFrame): contains intra_model z-score
+        jobs (int): Description
+        model_version (TYPE): Description
         norm_raw (pd.DataFrame): Normalized Raw depth 
         raw (pd.DataFrame): Raw depth
         sampling (int): Sampling rate for intra_model
@@ -52,6 +53,8 @@ class Model(object):
         
         Args:
             bamlist (list): List of bam files 
+            bedfile (str): Description
+            show_progress (bool, optional): Description
         """
         logging.info('Create Model bam files')
         self.bamlist = bamlist
@@ -109,22 +112,29 @@ class Model(object):
         def _reduce(chunk, start):
             """This function is called internally by pairwise_distances_chunked
             @see https://scikit-learn.org/stable/modules/generated/sklearn.metrics.pairwise_distances_chunked.html
-
+            
             This function looks for the maximum correlation  value in the chunk matrix and return the id 
             Same name in pairwise are skiped by the mask 
-            For example :  
-                  A   B   C 
-            A    NA  0.9  0.8
-            B    0.5 NA  0.4
-            C    0.3 0.7  NA
             
-            Will return a dataframe :  
+            For example:
+                      A   B   C 
+                A    NA  0.9  0.8
+                B    0.5 NA  0.4
+                C    0.3 0.7  NA
             
+            Will return a dataframe:
              id   idx  corr 
              A     B    0.9
              B     C    0.4
              C     B    0.9
-
+            
+            Args:
+                chunk (TYPE): Description
+                start (TYPE): Description
+            
+            Returns:
+                TYPE: Description
+            
             """
             # skip na value
             chunk[np.isnan(chunk)] = 1
@@ -230,16 +240,15 @@ class Model(object):
         
         model = Model("model.h5")
         data = model.test_sample("sample.bam")
-    
-        The dataframe contains for each position : 
-
+        
+        The dataframe contains for each position:
             - depth : the raw depth 
             - depth_norm: the normalized raw depth
             - inter_z: the inter-model z-score
             - depth_mate: the raw depth of the mate 
             - depth_mate_predicted: the raw depth predicted by the intra-model
             - intra_z: the intra-model z-score 
-
+        
         Args:
             bamfile (str): A sample bam file
         
@@ -306,6 +315,10 @@ def call_test(test_data: pd.DataFrame, column = "inter_z", threshold = 1.96, con
     """Call region from self.test_data
     
     Args:
+        test_data (pd.DataFrame): Description
+        column (str, optional): Description
+        threshold (float, optional): Description
+        consecutive_count (int, optional): Description
         group_name (str)
     
     Yields:

@@ -177,8 +177,8 @@ if __name__ == "__main__":
     # 	df = get_coverages_from_bed(args.bam, args.region, args.window, args.aggregate)
     # 	df.reset_index().to_hdf(args.output, key="raw", mode="w")
 
-    from iscard import core, Model
-    from iscard.model import plot_test, call_test
+    from iscard import core
+    from iscard.model import Model, plot_test, call_test
 
     if "info" in args.subcommand:
         model = Model(args.model)
