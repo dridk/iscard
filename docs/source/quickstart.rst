@@ -3,6 +3,9 @@ Quickstart
 
 Iscard is a python package depending version 3.6 or above
 
+.. warning:: Iscard is under developement 
+
+
 Installation 
 ------------
 
@@ -75,6 +78,9 @@ Plot results as svg or png file as follow :
 .. figure:: plot.png
 
    Visualization of inter and intra z-score in PKD1 gene. The picture show a deletion mark in red. 
+
+
+.. warning:: Calling is not working perfectly. Use iscard only for visualization
 
 
 
