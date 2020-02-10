@@ -6,17 +6,17 @@
 Welcome to iscard's documentation!
 ==================================
 
-Iscard is a tool to help detecting `Copy Number Variation <https://en.wikipedia.org/wiki/Copy-number_variation>`_ from Next Generation Sequencing. It works by computed 2 models from normal training sample:    
+Iscard is a tool to aid the detection of `Copy Number Variation <https://en.wikipedia.org/wiki/Copy-number_variation>`_ from Next Generation Sequencing data. It works by computing 2 models from a normal training data set:    
 
-* **inter-model** computes the sample depth deviation from a normal distribution obtained from the training data set. 
+* **inter-model** computes the sample depth deviation from a normal distribution estimated from the training data set. 
 
-* **intra-model** computes the depth correlation of different position within a sample which follows a linear regression. Those correlations are obtained from the training data. 
+* **intra-model** computes the correlation of depths at different position within a sample through linear regression. These correlations are also obtained from the training data set. 
   
-After creating your model, you can test a sample against and get differents metrics like **z-scores** which describe the deviation from a model. CNV can then be call using these metrics or  displayed in a genome browser like IGV.
+After creating your model, you can test a new sample against it and get different metrics such as **z-scores** which describe the deviation from the model. CNVs can then be called using these metrics or displayed in a genome browser such as IGV.
 
 .. figure:: pkd.png
 
-   The figure above display 3 samples with CNV each at different sizes. Each sample comes with 2 tracks described inter-model and intra-model z-score.
+   The figure above display 3 samples with CNVs of different sizes. Each sample comes with 2 tracks describing inter-model and intra-model z-scores.
 
   
 
