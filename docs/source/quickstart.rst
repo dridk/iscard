@@ -17,12 +17,22 @@ Install your package using pip or conda as it is explained on `installation`_ ::
 Creating the model 
 -----------------
 
-Suppose you have all normal sample bam file under the *normal* folder.
+Suppose you have all normal sample bam file under the *normal* folder and a region.bed describing
+your capture region. 
+The bed file must be a 4 columns text file whith chromosom, start, end and name. 
+
 To create the model, type the following command
 
 .. code-block:: language
 
     iscard learn -i normal/*.bam -r region.bed -o model.h5  
+
+
+.. code-block:: language
+
+	chr pos 
+
+
 
 All model data are stored into a hdf5 file. You can check information about your model by 
 using info command line 
