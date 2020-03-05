@@ -4,6 +4,9 @@ import pysam
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, MaxAbsScaler
 import matplotlib.pyplot as plt
 
+import multiprocessing as mp
+from functools import partial
+
 
 # Pysamstats warns this 
 # RuntimeWarning: pysam.libcalignedsegment.PileupColumn size changed, 
@@ -17,6 +20,9 @@ with warnings.catch_warnings(record=True) as w:
 import os
 import re
 from tqdm import tqdm
+
+from atpbar import atpbar
+from atpbar import register_reporter, find_reporter, flush
 
 import iscard
 # import pprint
@@ -57,11 +63,11 @@ def read_bed(filename: str) -> pd.DataFrame:
     ).drop_duplicates()
 
 
-def get_coverage(bamfile: list, chrom: str, start: int, end: int) -> pd.DataFrame:
+def get_coverage(bamfile: str, chrom: str, start: int, end: int, sample_rate = 1) -> pd.DataFrame:
     """Get read depth from from bam files according location  
 
     Args:
-        bamfile (list): list of bam file with index
+        bamfile (str): a bam file with index
         chrom (str): chromosome name
         start (int): start position of interest
         end (int): end position of interest
@@ -87,6 +93,9 @@ def get_coverage(bamfile: list, chrom: str, start: int, end: int) -> pd.DataFram
     df["chrom"] = df["chrom"].apply(lambda x: x.decode())
     df.rename({"reads_all": "depth"}, inplace=True, axis=1)
 
+    # keep line every sample_rate row 
+    df = df[df.index % sample_rate == 0]
+
     # if window > 1 and agg:
     #     # Group every window line  and aggregate depth
     #     return df.groupby(df.index // window).agg({"chrom":"first", "pos":"first" , "depth":agg})
@@ -94,7 +103,55 @@ def get_coverage(bamfile: list, chrom: str, start: int, end: int) -> pd.DataFram
     return df
 
 
-def get_coverages_from_bed(bamfiles, bedfile, show_progress=True):
+  
+def get_coverage_from_bed(bamfile: str, bedfile: str, sample_rate = 100, all = []):
+
+    sample_name = os.path.basename(bamfile).replace(".bam", "")
+    bed = read_bed(bedfile)
+
+
+    all_regions = []
+
+    position = all.index(bamfile)
+    
+    name = os.path.basename(bamfile)
+  
+    for i, row in tqdm(list(bed.iterrows())):
+
+        chrom = row["chrom"]
+        start = row["start"]
+        end = row["end"]
+        name = row["name"]
+
+        all_regions.append(get_coverage(bamfile,chrom, start, end, sample_rate).values)
+    
+    df = pd.DataFrame(np.concatenate(all_regions), columns=["chrom","pos",sample_name])
+    df[sample_name] = df[sample_name].astype(pd.np.uint16)
+
+
+    return df 
+        
+
+def compute_coverage(bamfiles: list, bedfile: str, sample_rate = 100, threads = None):
+    """ Compute coverage of bams files within bedfile using multithreading """
+
+    if threads is None:
+        theads =  mp.cpu_count()
+
+    mp.freeze_support()
+
+    with mp.Pool(threads) as pool:
+        worker = partial(get_coverage_from_bed, bedfile=bedfile, sample_rate=sample_rate, all = bamfiles) 
+        data = pd.concat(pool.map(worker, bamfiles), axis=1)
+
+
+    return data
+
+
+
+
+
+def get_coverages_from_bed_old(bamfiles, bedfile, show_progress=True):
     """Get coverage dataframe from one of many bam file within a bedfile
     
     Args:
