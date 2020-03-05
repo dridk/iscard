@@ -28,12 +28,6 @@ To create the model, type the following command
     iscard learn -i normal/*.bam -r region.bed -o model.h5  
 
 
-.. code-block:: language
-
-	chr pos 
-
-
-
 All model data are stored into a hdf5 file. You can check information about your model by 
 using info command line 
 
@@ -90,7 +84,10 @@ Plot results as svg or png file as follow :
    Visualization of inter and intra z-score in PKD1 gene. The picture show a deletion mark in red. 
 
 
-.. warning:: Calling is not working perfectly. Use iscard only for visualization
+.. warning:: Calling is comming .... 
+
+	iscard call -i test.result -m model.h5 > result.bed
+
 
 
 
