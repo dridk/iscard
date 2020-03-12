@@ -1,4 +1,4 @@
-import pandas as pd 
+import pandas as pd
 from sklearn.metrics import pairwise_distances_chunked, pairwise_distances
 from itertools import product
 import numpy as np
@@ -6,7 +6,6 @@ import os
 import matplotlib.pyplot as plt
 import logging
 from iscard import core, __version__
-
 
 
 class Model(object):
@@ -21,10 +20,10 @@ class Model(object):
         model_version (TYPE): Description
         norm_raw (pd.DataFrame): Normalized Raw depth 
         raw (pd.DataFrame): Raw depth
-        sampling (int): Sampling rate for intra_model
+        sample_rate (int): Sampling rate 
     """
 
-    def __init__(self, modelfile = None):
+    def __init__(self, modelfile=None):
         super().__init__()
 
         self.raw = None
@@ -33,8 +32,8 @@ class Model(object):
         self.inter_model = None
         self.intra_model = None
         self.model_version = __version__
-        self.sampling = 100
-        self.jobs = -1
+        self.sample_rate = 100
+        self.threads = -1
 
         if modelfile:
             self.from_hdf5(modelfile)
@@ -47,8 +46,14 @@ class Model(object):
         """
         return list(core.read_bed(self.bedfile)["name"].unique())
 
-
-    def learn(self, bamlist: list, bedfile: str, show_progress = True):
+    def learn(
+        self,
+        bamlist: list,
+        bedfile: str,
+        show_progress=True,
+        threads=1,
+        sample_rate=100,
+    ):
         """Create intrasample and intersample model
         
         Args:
@@ -56,20 +61,56 @@ class Model(object):
             bedfile (str): Description
             show_progress (bool, optional): Description
         """
-        logging.info('Create Model bam files')
+        self.threads = threads
+        self.sample_rate = sample_rate
+
+        logging.info(
+            """
+            Model threads: {:>5} 
+            Sampling rate: {:>5} 
+            training set: {:>5}
+            """.format(
+                self.threads, self.sample_rate, len(bamlist)
+            )
+        )
+
         self.bamlist = bamlist
         self.bedfile = bedfile
 
-        self.raw = core.get_coverages_from_bed(self.bamlist, self.bedfile, show_progress = show_progress)
+        self.raw = core.compute_coverage(
+            self.bamlist,
+            self.bedfile,
+            sample_rate=self.sample_rate,
+            show_progress=show_progress,
+            threads=self.threads,
+        )
+
+        self._compute_super_model()
+
+    def _compute_super_model(self):
+        """ compute intra and inter model and merge them into super model """
+
+        if self.raw is None:
+            raise IscardError("No depth computed. ")
+
+        logging.info(f"Create super model model")
 
         self.create_inter_samples_model()
         self.create_intra_samples_model()
+        self.super_model = pd.concat(
+            (self.intra_model, self.inter_model), axis=1, verify_integrity=True
+        )
+
+        logging.info("Super model done with {}".format(len(self.super_model)))
 
     def create_inter_samples_model(self):
         """Create inter sample model
         This model compute the mean and the standard deviation from training sampling.
         This will be used later to compute a inter z-score in a new sample
         """
+
+        logging.info(f"Create inter model")
+
         self.norm_raw = core.scale_dataframe(self.raw)
         self.inter_model = pd.DataFrame(
             {
@@ -86,29 +127,34 @@ class Model(object):
         This model compute depth correlation within samples. 
         This will be used later to compute a new intra z-score in a new sample
         """
-        # Keep row every step line 
+        # Keep row every step line
         # reset index because we are going to work on integer index
-        sub_raw = self.raw.reset_index()
-        sub_raw = sub_raw[sub_raw.index % self.sampling == 0]
 
-        # Create Mask index 
-        # This is used to avoid pairwise comparaison within same name   
-        # For example, if name is = [A,A,A,B,B,C], it computes the following mask 
+        logging.info(f"Create intra model")
+
+        sub_raw = self.raw.reset_index()
+        # sub_raw = sub_raw[sub_raw.index % self.sampling == 0]
+
+        # Create Mask index
+        # This is used to avoid pairwise comparaison within same name
+        # For example, if name is = [A,A,A,B,B,C], it computes the following mask
 
         #   A A A B B C
         # A 0 0 0 1 1 0
-        # A 0 0 0 1 1 0 
+        # A 0 0 0 1 1 0
         # A 0 0 0 1 1 0
         # B 1 1 1 0 0 1
         # B 1 1 1 0 0 1
         # C 1 1 1 1 1 0
 
-        index = sub_raw.name
-        mask = np.array([i[0] == i[1] for i in product(index,index)]).reshape(len(index),len(index))
+        index = sub_raw["name"]
+        mask = np.array([i[0] == i[1] for i in product(index, index)]).reshape(
+            len(index), len(index)
+        )
 
-        # return to multiindex 
-        sub_raw = sub_raw.set_index(["name","chrom","pos"])
-        
+        # return to multiindex
+        sub_raw = sub_raw.set_index(["name", "chrom", "pos"])
+
         def _reduce(chunk, start):
             """This function is called internally by pairwise_distances_chunked
             @see https://scikit-learn.org/stable/modules/generated/sklearn.metrics.pairwise_distances_chunked.html
@@ -138,57 +184,61 @@ class Model(object):
             """
             # skip na value
             chunk[np.isnan(chunk)] = 1
-            # correlation metrics from sklearn is 1 - corr 
-            chunk = 1 - chunk 
+            # correlation metrics from sklearn is 1 - corr
+            chunk = 1 - chunk
             rows_size = chunk.shape[0]
-            
-            select_mask = mask[start:start+rows_size]
-            # looks for id of maximum correlation value 
-            idx  = np.argmax(np.ma.masked_array(chunk, select_mask),axis=1)    
-            
-            # We only get idx, let's get correlation value 
+
+            select_mask = mask[start : start + rows_size]
+            # looks for id of maximum correlation value
+            idx = np.argmax(np.ma.masked_array(chunk, select_mask), axis=1)
+
+            # We only get idx, let's get correlation value
             corr = []
             for i, index in enumerate(idx):
                 corr.append(chunk[i][index])
-            
-            # Create a dataframe 
-            return pd.DataFrame({"idx": idx, "corr": corr}, index = range(start, start + rows_size))
 
-        # Perform pairwise correlation by using pairwise_distances_chunked to avoid memory limit 
-        
+            # Create a dataframe
+            return pd.DataFrame(
+                {"idx": idx, "corr": corr}, index=range(start, start + rows_size)
+            )
+
+        # Perform pairwise correlation by using pairwise_distances_chunked to avoid memory limit
+
         all_reduce_chunk = []
-        
-        # -1 mean all jobs 
-        for chunk in pairwise_distances_chunked(sub_raw, metric="correlation",reduce_func = _reduce, n_jobs= self.jobs):
+
+        # -1 mean all jobs
+        for chunk in pairwise_distances_chunked(
+            sub_raw, metric="correlation", reduce_func=_reduce, n_jobs=self.threads
+        ):
             all_reduce_chunk.append(chunk)
 
         self.intra_model = pd.concat(all_reduce_chunk)
         ss = sub_raw.reset_index(drop=True)
 
+        # avoid warning : polynomial.py:630: RuntimeWarning: invalid value encountered in true_divide
 
-        for i, row in self.intra_model.iterrows():
-            
-            j = row["idx"]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            for i, row in self.intra_model.iterrows():
 
-            x  = ss.loc[i,:]
-            y  = ss.loc[j,:]
+                j = row["idx"]
 
-            try:
-                coef, intercept = tuple(np.polyfit(x,y,1))
-                yp = x*coef + intercept
-                error = yp - y 
-                std = error.std()
-            except:
-                coef, intercept = 0,0 
-                std = pd.np.NaN
+                x = ss.loc[i, :]
+                y = ss.loc[j, :]
 
-            self.intra_model.loc[i,"coef"] = coef
-            self.intra_model.loc[i,"intercept"] = intercept    
-            self.intra_model.loc[i,"std"] = std    
+                try:
+                    coef, intercept = tuple(np.polyfit(x, y, 1))
+                    yp = x * coef + intercept
+                    error = yp - y
+                    std = error.std()
+                except:
+                    coef, intercept = 0, 0
+                    std = np.NaN
 
+                self.intra_model.loc[i, "coef"] = coef
+                self.intra_model.loc[i, "intercept"] = intercept
+                self.intra_model.loc[i, "std2"] = std
 
         self.intra_model = self.intra_model.set_index(sub_raw.index)
-        
 
     def to_hdf5(self, filename: str):
         """Serialize model to hdf5
@@ -202,40 +252,44 @@ class Model(object):
         if self.raw is None or self.intra_model is None or self.inter_model is None:
             raise core.IscardError("model has not been computed")
 
-        self.raw.to_hdf(filename,"raw")
-        self.inter_model.to_hdf(filename,"inter_model")
-        self.intra_model.to_hdf(filename,"intra_model")
-        
-        pd.Series(self.bamlist).to_hdf(filename,"bamlist")
+        self.raw.to_hdf(filename, "raw")
+        # TODO : remove inter and intra model .. because it is already in super_model ?
+        # Or maybe keep both model with different sampling size ?
+
+        self.inter_model.to_hdf(filename, "inter_model")
+        self.intra_model.to_hdf(filename, "intra_model")
+        self.super_model.to_hdf(filename, "super_model")
+
+        pd.Series(self.bamlist).to_hdf(filename, "bamlist")
         metadata = pd.Series(
             {
-            "sampling": str(self.sampling),
-            "region":str(os.path.abspath(self.bedfile)),
-            "version": self.model_version
+                "sample_rate": str(self.sample_rate),
+                "region": str(os.path.abspath(self.bedfile)),
+                "version": self.model_version,
+            }
+        )
 
-            })
+        metadata.to_hdf(filename, "metadata")
 
-        metadata.to_hdf(filename,"metadata")
-
-        
-
-    def from_hdf5(self, filename:str):
+    def from_hdf5(self, filename: str):
         """Set the model instance from a hdf5 file
         
         Args:
             filename (str): hdf5 filename. eg: model.h5
         """
-        self.raw = pd.read_hdf(filename,"raw")
-        self.inter_model = pd.read_hdf(filename,"inter_model")
-        self.intra_model = pd.read_hdf(filename,"intra_model")
-        self.bamlist = list(pd.read_hdf(filename,"bamlist"))
+        self.raw = pd.read_hdf(filename, "raw")
+        self.inter_model = pd.read_hdf(filename, "inter_model")
+        self.intra_model = pd.read_hdf(filename, "intra_model")
+        self.super_model = pd.read_hdf(filename, "super_model")
+
+        self.bamlist = list(pd.read_hdf(filename, "bamlist"))
 
         metadata = pd.read_hdf(filename, key="metadata")
-        self.sampling = int(metadata["sampling"])
-        self.bedfile =  metadata["region"]
+        self.sample_rate = int(metadata["sample_rate"])
+        self.bedfile = metadata["region"]
         self.model_version = metadata["version"]
 
-    def test_sample(self,bamfile:str) -> pd.DataFrame:
+    def test_sample(self, bamfile: str, show_progress=True) -> pd.DataFrame:
         """Test a new sample against the current model
         
         model = Model("model.h5")
@@ -255,28 +309,31 @@ class Model(object):
         Returns:
             pd.DataFrame
         """
-        del_coverage = core.get_coverages_from_bed([bamfile], self.bedfile)
-
+        del_coverage = core.get_coverages_from_bed(
+            bamfile,
+            self.bedfile,
+            sample_rate=self.sample_rate,
+            show_progress=show_progress,
+        )
         dd = del_coverage.copy()
         dd.columns = ["depth"]
 
-        # Compute inter model 
+        # Compute inter model
         dd["depth_norm"] = core.scale_dataframe(dd)["depth"]
-        dd["inter_z"] = (dd["depth_norm"] - self.inter_model["mean"])/ self.inter_model["std"]
+        dd["inter_z"] = (
+            dd["depth_norm"] - self.super_model["mean"]
+        ) / self.super_model["std"]
 
+        # # Compute intra model
+        depth_mate = dd.iloc[self.super_model["idx"], :]["depth"].to_list()
+        dd["depth_mate"] = depth_mate
+        dd["depth_mate_predicted"] = (
+            self.super_model["coef"] * dd["depth"]
+        ) + self.super_model["intercept"]
+        dd["error_intra"] = dd["depth_mate_predicted"] - dd["depth_mate"]
+        dd["intra_z"] = dd["error_intra"] / self.super_model["std2"]
 
-        # Compute intra model 
-        subset = dd.loc[self.intra_model.index]
-        subset["depth_mate"] = subset.iloc[self.intra_model["idx"],:].iloc[:,0].values
-        subset["depth_mate_predicted"] = (self.intra_model["coef"] * subset["depth"]) + self.intra_model["intercept"]
-        subset["corr"] = self.intra_model["corr"]
-        subset["error"] = subset["depth_mate_predicted"]  - subset["depth_mate"]
-        subset["intra_z"] = subset["error"] / self.intra_model["std"]
-
-        subset.drop(["depth","depth_norm","inter_z"], axis=1)
-        test_data = dd.join(subset.drop(["depth","depth_norm", "inter_z"], axis=1))
-        
-        return test_data
+        return dd
 
     def __len__(self) -> int:
         """Return row size of the model
@@ -292,26 +349,25 @@ class Model(object):
         print("Model version: {}".format(self.model_version))
         print("Depth position counts: {}".format(len(self.inter_model)))
         print("bedfile: {}".format(self.bedfile))
-        print("sample rate: {}".format(self.sampling))
+        print("sample rate: {}".format(self.sample_rate))
 
         print("Bam(s) used: {}".format(len(self.bamlist)))
         for bam in self.bamlist:
-            print("\t - "+bam)
+            print("\t - " + bam)
 
         gps = self.get_group_names()
 
         print("Group names(s): {}".format(len(gps)))
         for g in gps:
-            print("\t - "+g)
+            print("\t - " + g)
 
         print("Inter model shape: {}".format(self.inter_model.shape))
         print("Intra model shape: {}".format(self.intra_model.shape))
 
 
-
-
-
-def call_test(test_data: pd.DataFrame, column = "inter_z", threshold = 1.96, consecutive_count = 1000):
+def call_test(
+    test_data: pd.DataFrame, column="inter_z", threshold=1.96, consecutive_count=1000
+):
     """Call region from self.test_data
     
     Args:
@@ -326,58 +382,57 @@ def call_test(test_data: pd.DataFrame, column = "inter_z", threshold = 1.96, con
     """
 
     for region in core.call_region(test_data[column], threshold, consecutive_count):
-        first, last = region 
+        first, last = region
         chrom = test_data["chrom"][first]
         name = test_data["name"][first]
 
         x1 = test_data["pos"][first]
         x2 = test_data["pos"][last]
-        
-        yield (chrom,x1,x2, name)
+
+        yield (chrom, x1, x2, name)
 
 
+def plot_test(
+    outputfile: str,
+    test_data: pd.DataFrame,
+    model: Model,
+    group_name: str,
+    call=True,
+    threshold=2,
+    consecutive_count=1000,
+):
 
-def plot_test(outputfile:str, test_data:pd.DataFrame, model: Model, group_name:str, call = True,threshold = 2, consecutive_count = 1000 ):
-    
-    
     data = test_data.query("name == @group_name")
-    mm = model.inter_model[["min","max","mean"]].loc[group_name,:].reset_index()
+    mm = model.inter_model[["min", "max", "mean"]].loc[group_name, :].reset_index()
 
-    figure, ax = plt.subplots(3,1, figsize=(30,10))
-    
+    figure, ax = plt.subplots(3, 1, figsize=(30, 10))
+
     figure.suptitle(group_name, fontsize=30)
 
-
     ax[0].grid(True)
-    ax[0].set_xlabel('position')
-    ax[0].set_ylabel('raw depth')
-    ax[0].fill_between("pos","min", "max", color="lightgray", alpha=1, data = mm)
+    ax[0].set_xlabel("position")
+    ax[0].set_ylabel("raw depth")
+    ax[0].fill_between("pos", "min", "max", color="lightgray", alpha=1, data=mm)
     ax[0].plot(data["pos"], data["depth_norm"], color="#32afa9")
 
-
     ax[1].grid(True)
-    ax[1].set_xlabel('position')
-    ax[1].set_ylabel('Inter z-score')
+    ax[1].set_xlabel("position")
+    ax[1].set_ylabel("Inter z-score")
     ax[1].plot(data["pos"], data["inter_z"], color="lightgray")
     ax[1].plot(data["pos"], data["inter_z"].rolling(500).mean(), color="#32afa9")
 
-
-    #ax[0].plot(data["pos"], data["inter_z"].rolling(500).mean())
+    # ax[0].plot(data["pos"], data["inter_z"].rolling(500).mean())
 
     ax[2].grid(True)
-    ax[2].set_ylabel('Intra z-score')
-    ax[2].scatter(data["pos"],data["intra_z"], color="#32afa9")
+    ax[2].set_ylabel("Intra z-score")
+    ax[2].scatter(data["pos"], data["intra_z"], color="#32afa9")
 
-
-    # Plot region 
+    # Plot region
     if call:
         for region in call_test(data):
-            chrom, x1, x2, name = region 
-            ax[0].axvspan(x1,x2, alpha=0.5, color='red')
-            ax[1].axvspan(x1,x2, alpha=0.5, color='red')
-            ax[2].axvspan(x1,x2, alpha=0.5, color='red')
+            chrom, x1, x2, name = region
+            ax[0].axvspan(x1, x2, alpha=0.5, color="red")
+            ax[1].axvspan(x1, x2, alpha=0.5, color="red")
+            ax[2].axvspan(x1, x2, alpha=0.5, color="red")
 
     plt.savefig(outputfile)
-
-
-

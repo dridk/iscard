@@ -4,12 +4,16 @@ import pysam
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, MaxAbsScaler
 import matplotlib.pyplot as plt
 
+import multiprocessing as mp
+from functools import partial
 
-# Pysamstats warns this 
-# RuntimeWarning: pysam.libcalignedsegment.PileupColumn size changed, 
+
+# Pysamstats warns this
+# RuntimeWarning: pysam.libcalignedsegment.PileupColumn size changed,
 # may indicate binary incompatibility. Expected 72 from C header, got 88 from PyObject
-# I cannot fixed it, don't show it 
+# I cannot fixed it, don't show it
 import warnings
+
 with warnings.catch_warnings(record=True) as w:
     import pysamstats
 
@@ -18,11 +22,17 @@ import os
 import re
 from tqdm import tqdm
 
+from atpbar import atpbar
+from atpbar import register_reporter, find_reporter, flush
+
 import iscard
+
 # import pprint
+
 
 class IscardError(Exception):
     pass
+
 
 def func(arg1, arg2):
     """Summary line.
@@ -57,11 +67,13 @@ def read_bed(filename: str) -> pd.DataFrame:
     ).drop_duplicates()
 
 
-def get_coverage(bamfile: list, chrom: str, start: int, end: int) -> pd.DataFrame:
+def get_coverage(
+    bamfile: str, chrom: str, start: int, end: int, sample_rate=1
+) -> pd.DataFrame:
     """Get read depth from from bam files according location  
 
     Args:
-        bamfile (list): list of bam file with index
+        bamfile (str): a bam file with index
         chrom (str): chromosome name
         start (int): start position of interest
         end (int): end position of interest
@@ -71,6 +83,7 @@ def get_coverage(bamfile: list, chrom: str, start: int, end: int) -> pd.DataFram
     
     """
     import warnings
+
     mybam = pysam.AlignmentFile(bamfile)
     df = pd.DataFrame(
         pysamstats.load_coverage(
@@ -87,59 +100,59 @@ def get_coverage(bamfile: list, chrom: str, start: int, end: int) -> pd.DataFram
     df["chrom"] = df["chrom"].apply(lambda x: x.decode())
     df.rename({"reads_all": "depth"}, inplace=True, axis=1)
 
-    # if window > 1 and agg:
-    #     # Group every window line  and aggregate depth
-    #     return df.groupby(df.index // window).agg({"chrom":"first", "pos":"first" , "depth":agg})
+    # keep line every sample_rate row
+    df = df[df.index % sample_rate == 0]
 
     return df
 
 
-def get_coverages_from_bed(bamfiles, bedfile, show_progress=True):
-    """Get coverage dataframe from one of many bam file within a bedfile
-    
-    Args:
-        bamlists (list): list of bam files
-        bedfile (str): a bed file with 4 colonnes (chr,start,end,name)
-        window (int, optional): window size 
-        agg (str, optional): Aggregate function 
-    
-    Returns:
-        pd.DataFrame: a Dataframe with depth for each bam file within region describe in bed 
-    """
+def get_coverages_from_bed(
+    bamfile: str, bedfile: str, sample_rate=100, show_progress=True
+):
 
+    sample_name = os.path.basename(bamfile).replace(".bam", "")
     bed = read_bed(bedfile)
 
-    all_df = []
+    all_regions = []
 
     if show_progress:
-        generator = tqdm(bed.iterrows(), total=len(bed))
+        generator = tqdm(list(bed.iterrows()))
     else:
         generator = bed.iterrows()
 
-    for _, row in generator:
-        chrom = row["chrom"]
-        start = row["start"]
-        end = row["end"]
-        name = row["name"]
+    for i, row in generator:
 
-        for index, bam in enumerate(bamfiles):
-            sample_name = os.path.basename(bam).replace(".bam", "")
+        chrom, start, end, name = row["chrom"], row["start"], row["end"], row["name"]
 
-            sample_df = get_coverage(bam, chrom, start, end)
+        cov = get_coverage(bamfile, chrom, start, end, sample_rate)
+        cov["name"] = name
+        all_regions.append(cov.values)
 
-            if index == 0:
-                df = sample_df
-                df.insert(2, "name", name)
-                df = df.rename({"depth": sample_name}, axis=1)
+    df = pd.DataFrame(
+        np.concatenate(all_regions), columns=["chrom", "pos", sample_name, "name"]
+    )
+    df[sample_name] = df[sample_name].astype(np.uint16)
 
-            else:
-                df[sample_name] = sample_df["depth"]
+    return df.set_index(["name", "chrom", "pos"])
 
-        all_df.append(df)
 
-    final = pd.concat(all_df).reset_index(drop=True).drop_duplicates()
-    final = final.set_index(["name", "chrom", "pos"])
-    return final
+def compute_coverage(
+    bamfiles: list, bedfile: str, sample_rate=100, threads=None, show_progress=True
+):
+    """ Compute coverage all all bamfile using multithreading"""
+    if threads is None:
+        theads = 1
+
+    with mp.Pool(threads) as pool:
+        worker = partial(
+            get_coverages_from_bed,
+            bedfile=bedfile,
+            sample_rate=sample_rate,
+            show_progress=show_progress,
+        )
+        data = pd.concat(pool.map(worker, bamfiles), axis=1)
+
+    return data
 
 
 def scale_dataframe(df):
@@ -154,44 +167,43 @@ def scale_dataframe(df):
     return new_df
 
 
-def call_region(serie : pd.Series, threshold = 2, consecutive_count = 100):
+def call_region(serie: pd.Series, threshold=2, consecutive_count=100):
     counter = 0
     valid = False
 
     for index, i in serie.items():
         if abs(i) > threshold:
-            counter+= 1
+            counter += 1
             if counter == 1:
                 begin = index
         else:
             counter = 0
             if valid == True:
-                valid =  False
-                yield (begin,end)
+                valid = False
+                yield (begin, end)
 
         if counter > consecutive_count:
             end = index
             valid = True
-                
 
-def print_bedgraph(df: pd.DataFrame, column: str, name = None):
+
+def print_bedgraph(df: pd.DataFrame, column: str, name=None):
 
     if not name:
         name = "Iscard data"
 
-    print(f"""track type=bedGraph name="{name}" description="BedGraph format" 
-        visibility=full color=200,100,0 altColor=0,100,200 priority=20")""")
+    print(
+        f"""track type=bedGraph name="{name}" description="BedGraph format" 
+        visibility=full color=200,100,0 altColor=0,100,200 priority=20")"""
+    )
 
     for index, row in df.iterrows():
         chrom = row["chrom"]
         start = row["pos"]
-        end = row["pos"] + 1 
+        end = row["pos"] + 1
         value = row[column]
 
-        print(chrom,start, end, value, sep="\t")
-
-
-
+        print(chrom, start, end, value, sep="\t")
 
 
 # def create_model(bamlist: list, bedfile:str, output:str, window = 1, agg="mean"):
