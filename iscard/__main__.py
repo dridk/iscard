@@ -20,8 +20,7 @@ parser = argparse.ArgumentParser(
 )
 
 
-
-parser.add_argument('--version', action='version', version= iscard.__version__)
+parser.add_argument("--version", action="version", version=iscard.__version__)
 subparsers = parser.add_subparsers(title="sub command", dest="subcommand")
 
 
@@ -44,13 +43,17 @@ learn_parser.add_argument(
     "-o", "--output", help="write the model into a hdf5 file", required=True
 )
 learn_parser.add_argument(
-    "-t", "--threads", help="Set thread number", required=False, default = 4, type=int
+    "-t", "--threads", help="Set thread number", required=False, default=4, type=int
 )
 
 learn_parser.add_argument(
-    "-s", "--sampling", help="Read depth every <s> bases", required=False, default = 100, type=int
+    "-s",
+    "--sampling",
+    help="Read depth every <s> bases",
+    required=False,
+    default=100,
+    type=int,
 )
-
 
 
 test_parser = subparsers.add_parser(
@@ -64,7 +67,9 @@ test_parser = subparsers.add_parser(
     """,
 )
 
-test_parser.add_argument("-i", "--input", help="A sample bam file to test", required=True)
+test_parser.add_argument(
+    "-i", "--input", help="A sample bam file to test", required=True
+)
 test_parser.add_argument(
     "-m", "--model", help="Model created by `iscard learn`", required=True
 )
@@ -112,7 +117,7 @@ bedgraph_parser.add_argument(
     "-c",
     "--column",
     help="Variable to use",
-    choices=["depth","depth_norm", "inter_z", "intra_z"],
+    choices=["depth", "depth_norm", "inter_z", "intra_z"],
 )
 
 
@@ -130,9 +135,7 @@ plot_parser.add_argument(
     "-i", "--input", help="test file created by `iscard test`", required=True
 )
 
-plot_parser.add_argument(
-    "-m", "--model", help="model file ", required=True
-)
+plot_parser.add_argument("-m", "--model", help="model file ", required=True)
 plot_parser.add_argument(
     "-o", "--output", help="Plot test into an image", required=True
 )
@@ -140,11 +143,10 @@ plot_parser.add_argument(
     "-n",
     "--name",
     help="select data within a name region. The name comes from the bed file ",
-    required = True
+    required=True,
 )
 
 plot_parser.add_argument("-t", "--threshold", help="zscore threshold", default=3)
-
 
 
 info_parser = subparsers.add_parser(
@@ -178,7 +180,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-
     logging.basicConfig(level=logging.INFO)
 
     if len(sys.argv) == 1:
@@ -192,14 +193,19 @@ if __name__ == "__main__":
     from iscard import core
     from iscard.model import Model, plot_test, call_test
 
-
     if "info" in args.subcommand:
         model = Model(args.model)
         model.print_infos()
 
     if "learn" in args.subcommand:
         model = Model()
-        model.learn(args.input, args.region, show_progress=True, threads = args.threads, sample_rate = args.sampling)
+        model.learn(
+            args.input,
+            args.region,
+            show_progress=True,
+            threads=args.threads,
+            sample_rate=args.sampling,
+        )
         model.to_hdf5(args.output)
 
     if "test" in args.subcommand:
@@ -211,12 +217,12 @@ if __name__ == "__main__":
         test_data = pd.read_csv(args.input, sep="\t")
         for region in call_test(test_data):
             print(*region, sep="\t")
-        
-        #df.to_csv(args.output, sep="\t")
+
+        # df.to_csv(args.output, sep="\t")
 
     if "bedgraph" in args.subcommand:
         df = pd.read_csv(args.input, sep="\t")
-        core.print_bedgraph(df,args.column, "Iscard")
+        core.print_bedgraph(df, args.column, "Iscard")
 
     if "plot" in args.subcommand:
 
