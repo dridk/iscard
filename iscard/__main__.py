@@ -2,6 +2,7 @@ import argparse
 import sys
 import pandas as pd
 import logging
+import iscard
 
 parser = argparse.ArgumentParser(
     usage="""
@@ -14,10 +15,14 @@ parser = argparse.ArgumentParser(
     plot        Create plot image from a test file
     bedgraph    Create a bedgraph from a test file 
     info        Get some info about a model
+    version     Print iscard version
 
     """
 )
 
+
+
+parser.add_argument('--version', action='version', version= iscard.__version__)
 subparsers = parser.add_subparsers(title="sub command", dest="subcommand")
 
 
@@ -179,6 +184,7 @@ if __name__ == "__main__":
 
     from iscard import core
     from iscard.model import Model, plot_test, call_test
+
 
     if "info" in args.subcommand:
         model = Model(args.model)
