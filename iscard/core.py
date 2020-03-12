@@ -96,107 +96,50 @@ def get_coverage(bamfile: str, chrom: str, start: int, end: int, sample_rate = 1
     # keep line every sample_rate row 
     df = df[df.index % sample_rate == 0]
 
-    # if window > 1 and agg:
-    #     # Group every window line  and aggregate depth
-    #     return df.groupby(df.index // window).agg({"chrom":"first", "pos":"first" , "depth":agg})
 
     return df
 
 
   
-def get_coverage_from_bed(bamfile: str, bedfile: str, sample_rate = 100, all = []):
+def get_coverages_from_bed(bamfile: str, bedfile: str, sample_rate = 100, show_progress = True):
 
     sample_name = os.path.basename(bamfile).replace(".bam", "")
     bed = read_bed(bedfile)
 
-
     all_regions = []
 
-    position = all.index(bamfile)
-    
-    name = os.path.basename(bamfile)
-  
-    for i, row in tqdm(list(bed.iterrows())):
-
-        chrom = row["chrom"]
-        start = row["start"]
-        end = row["end"]
-        name = row["name"]
-
-        all_regions.append(get_coverage(bamfile,chrom, start, end, sample_rate).values)
-    
-    df = pd.DataFrame(np.concatenate(all_regions), columns=["chrom","pos",sample_name])
-    df[sample_name] = df[sample_name].astype(pd.np.uint16)
-
-
-    return df 
-        
-
-def compute_coverage(bamfiles: list, bedfile: str, sample_rate = 100, threads = None):
-    """ Compute coverage of bams files within bedfile using multithreading """
-
-    if threads is None:
-        theads =  mp.cpu_count()
-
-    mp.freeze_support()
-
-    with mp.Pool(threads) as pool:
-        worker = partial(get_coverage_from_bed, bedfile=bedfile, sample_rate=sample_rate, all = bamfiles) 
-        data = pd.concat(pool.map(worker, bamfiles), axis=1)
-
-
-    return data
-
-
-
-
-
-def get_coverages_from_bed_old(bamfiles, bedfile, show_progress=True):
-    """Get coverage dataframe from one of many bam file within a bedfile
-    
-    Args:
-        bamlists (list): list of bam files
-        bedfile (str): a bed file with 4 colonnes (chr,start,end,name)
-        window (int, optional): window size 
-        agg (str, optional): Aggregate function 
-    
-    Returns:
-        pd.DataFrame: a Dataframe with depth for each bam file within region describe in bed 
-    """
-
-    bed = read_bed(bedfile)
-
-    all_df = []
-
     if show_progress:
-        generator = tqdm(bed.iterrows(), total=len(bed))
+        generator =  tqdm(list(bed.iterrows()))
     else:
         generator = bed.iterrows()
+  
+    for i, row in generator:
 
-    for _, row in generator:
-        chrom = row["chrom"]
-        start = row["start"]
-        end = row["end"]
-        name = row["name"]
+        chrom, start, end, name = row["chrom"], row["start"], row["end"], row["name"]
+        
+        cov = get_coverage(bamfile,chrom, start, end, sample_rate)
+        cov["name"] = name
+        all_regions.append(cov.values)
+    
+    df = pd.DataFrame(np.concatenate(all_regions), columns=["chrom","pos",sample_name, "name"])
+    df[sample_name] = df[sample_name].astype(np.uint16)
 
-        for index, bam in enumerate(bamfiles):
-            sample_name = os.path.basename(bam).replace(".bam", "")
 
-            sample_df = get_coverage(bam, chrom, start, end)
+    return df.set_index(["name", "chrom", "pos"])
+        
 
-            if index == 0:
-                df = sample_df
-                df.insert(2, "name", name)
-                df = df.rename({"depth": sample_name}, axis=1)
 
-            else:
-                df[sample_name] = sample_df["depth"]
-
-        all_df.append(df)
-
-    final = pd.concat(all_df).reset_index(drop=True).drop_duplicates()
-    final = final.set_index(["name", "chrom", "pos"])
-    return final
+def compute_coverage(bamfiles: list, bedfile: str, sample_rate = 100, threads = None, show_progress = True):
+    """ Compute coverage all all bamfile using multithreading"""
+    if threads is None:
+        theads =  1
+        
+    with mp.Pool(threads) as pool:
+        worker = partial(get_coverages_from_bed, bedfile=bedfile, sample_rate=sample_rate, show_progress=show_progress)     
+        data = pd.concat(pool.map(worker, bamfiles), axis=1)
+        
+    return data
+        
 
 
 def scale_dataframe(df):

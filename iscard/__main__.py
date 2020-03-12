@@ -15,7 +15,6 @@ parser = argparse.ArgumentParser(
     plot        Create plot image from a test file
     bedgraph    Create a bedgraph from a test file 
     info        Get some info about a model
-    version     Print iscard version
 
     """
 )
@@ -44,6 +43,14 @@ learn_parser.add_argument(
 learn_parser.add_argument(
     "-o", "--output", help="write the model into a hdf5 file", required=True
 )
+learn_parser.add_argument(
+    "-t", "--threads", help="Set thread number", required=False, default = 4, type=int
+)
+
+learn_parser.add_argument(
+    "-s", "--sampling", help="Read depth every <s> bases", required=False, default = 100, type=int
+)
+
 
 
 test_parser = subparsers.add_parser(
@@ -192,7 +199,7 @@ if __name__ == "__main__":
 
     if "learn" in args.subcommand:
         model = Model()
-        model.learn(args.input, args.region, show_progress=True)
+        model.learn(args.input, args.region, show_progress=True, threads = args.threads, sample_rate = args.sampling)
         model.to_hdf5(args.output)
 
     if "test" in args.subcommand:

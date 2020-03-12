@@ -28,7 +28,7 @@ def create_fake_bamlist(count = 10):
 	return bams
 
 
-def get_bed_interval(bedfile):
+def get_bed_interval(bedfile, sample_rate = 1):
 
 	with open(bedfile, "r") as file:
 		reader = csv.reader(file, delimiter="\t")
@@ -38,25 +38,26 @@ def get_bed_interval(bedfile):
 			chrom, start, end, name = line
 			start = int(start)
 			end = int(end)
-			for i in range(start,end):
+			for i in range(start,end, sample_rate):
 				data.append([chrom, start, end, name])
 
 		df = pd.DataFrame(data, columns = ["chrom", "start","end", "name"])
 
 		return df
 
-def create_fake_model(size=10, noise_mean = 0, noise_std = 1):
+def create_fake_model(size=10, sample_rate=100, noise_mean = 0, noise_std = 1):
 	model = Model()
 	bamlist = create_fake_bamlist(size)
 
+	model.sample_rate = sample_rate
 	model.bamlist = bamlist
 	model.bedfile = BEDFILE
-	model.raw = core.get_coverages_from_bed(model.bamlist,model.bedfile, show_progress = True)
+	model.raw = core.compute_coverage(model.bamlist,model.bedfile, sample_rate = sample_rate, show_progress=False)
 	# Add fake noise 
 	noise = np.random.normal(noise_mean, noise_std, model.raw.shape)
 	model.raw = model.raw.add(noise,axis=0).astype(int)
 
-	model.create_inter_samples_model()
-	model.create_intra_samples_model()
+	model._compute_super_model()
+
 
 	return model

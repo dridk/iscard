@@ -1,11 +1,12 @@
 from iscard import core
 
+import pytest
 import pandas as pd
 from tempfile import mkdtemp
 import shutil 
 import os 
 import glob 
-
+import numpy as np
 import common as cm
 import contextlib
 
@@ -39,14 +40,34 @@ def test_get_coverage():
 	assert len(df) == end - start
 
 
-def test_get_coverages_from_bed():
-	
-	names = list(core.read_bed(cm.BEDFILE)["name"].unique())
-	sample_count = 3
-	bamlist = cm.create_fake_bamlist(sample_count)
-	df = core.get_coverages_from_bed(bamlist,cm.BEDFILE, show_progress= False)
+@pytest.mark.parametrize("sample_rate", [1,10,100,200])
+def test_get_coverages_from_bed(sample_rate):
 
-	assert set(df.columns) == set([f"fake_{i}" for i in range(sample_count)])
+	df = core.get_coverages_from_bed(cm.BAMFILE,cm.BEDFILE, sample_rate = sample_rate, show_progress= False)
+
+	assert list(df.index.names) == ["name","chrom", "pos"]
+	assert len(df.columns) == 1
+
+	bed = core.read_bed(cm.BEDFILE)
+	
+	# Loop over each bed region and check if position fit with sample_rate	
+	df = df.droplevel(0)
+	for _, line in bed.iterrows():
+		chrom, start, end = line["chrom"], line["start"], line["end"]
+		pos_index = (df.loc[chrom, :].query(" `pos` >= @start & `pos` <= @end ")).index.to_series()
+		assert ((pos_index.diff()[1:] == sample_rate).all()) == True
+
+	
+def test_compute_coverage():
+
+	names = list(core.read_bed(cm.BEDFILE)["name"].unique())
+	sample_count = 10
+	bamlist = cm.create_fake_bamlist(sample_count)
+	df = core.compute_coverage(bamlist,cm.BEDFILE, show_progress= False)
+
+	assert list(df.columns) == [f"fake_{i}" for i in range(sample_count)]
+	assert list(df.index.names) == ["name","chrom", "pos"]
+	
 
 def test_scale_dataframe():
 
