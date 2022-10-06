@@ -193,8 +193,7 @@ def print_bedgraph(df: pd.DataFrame, column: str, name=None):
         name = "Iscard data"
 
     print(
-        f"""track type=bedGraph name="{name}" description="BedGraph format" 
-        visibility=full color=200,100,0 altColor=0,100,200 priority=20")"""
+        f"""track type=bedGraph name="{name}" description="BedGraph format" visibility=full color=200,100,0 altColor=0,100,200 priority=20")"""
     )
 
     for index, row in df.iterrows():
